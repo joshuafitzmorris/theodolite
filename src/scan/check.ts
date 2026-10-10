@@ -1,22 +1,17 @@
 // `theodolite check`: scan against theodolite.toml and print findings.
 
-import { architectureSection, humanOutput, jsonOutput, summarize } from "./output.ts";
+import { humanOutput, jsonOutput, summarize } from "./output.ts";
 import { begin, scanProject } from "./scan.ts";
 
-const USAGE = `theodolite check [--root <dir>] [--config <file>] [--json] [--strict] [--architecture]
+const USAGE = `theodolite check [--root <dir>] [--config <file>] [--json] [--strict]
 
-  exit 0 clean or warnings only, 1 errors, 2 usage or config error, or no files scanned
-  --strict        warnings count as errors
-  --architecture  print a "Who writes what" markdown section instead of findings`;
+  exit 0 clean or warnings only, 1 errors, 2 usage or config error
+  --strict        warnings count as errors`;
 
 export async function run(argv: string[]): Promise<number> {
 	const started = begin(argv, USAGE, false);
 	if (typeof started === "number") return started;
 	const { args, config } = started;
-	if (args.architecture) {
-		console.log(architectureSection(config));
-		return 0;
-	}
 	const result = scanProject(config, args.strict);
 	console.log(args.json ? jsonOutput(result) : humanOutput(result));
 	if (result.files === 0) {

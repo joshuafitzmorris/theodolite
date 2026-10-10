@@ -49,7 +49,7 @@ describe("status", () => {
 		expect(needsHuman("Done. Anything else you want?")).toBe(true);
 	});
 
-	// guards: SubagentStop reading the wrong transcript, logging internal agents, writing STATUS.md in cwd, --rewrite
+	// guards: SubagentStop reading the wrong transcript, logging internal agents, writing STATUS.md in cwd
 	it("handles SubagentStop transcripts, empty agent_type and the STATUS.md location", () => {
 		const dir = mkdtempSync(join(tmpdir(), "wm-status-"));
 		const proj = join(dir, "proj");
@@ -57,7 +57,7 @@ describe("status", () => {
 		writeFileSync(join(dir, "agent.jsonl"), transcript);
 		writeFileSync(join(dir, "main.jsonl"), "");
 		const run = (payload: Record<string, unknown>) =>
-			spawnSync("node", [cli, "status", "--rewrite"], {
+			spawnSync("node", [cli, "status"], {
 				cwd: dir,
 				input: JSON.stringify({ cwd: dir, ...payload }),
 				encoding: "utf8",

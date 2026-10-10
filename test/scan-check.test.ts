@@ -110,18 +110,6 @@ describe("check: the project fixture end to end", () => {
 		expect(await check(["--root", dir, "--nope"])).toBe(2);
 	});
 
-	// guards: --architecture printing findings, or exiting non-zero while errors exist
-	it("prints the Who writes what section and exits 0", async () => {
-		expect(await check(["--root", fixture, "--architecture"])).toBe(0);
-		expect(text().split("\n")).toEqual([
-			"## Who writes what",
-			"",
-			"- `db.legacy_accounts`: writers none (write-never); constructors unset; grandfathered 0",
-			"- `db.users`: writers `src/users/**`; constructors `src/users/repository.js`; grandfathered 1",
-			"- `external.stripe`: writers `src/billing/**`; constructors unset; grandfathered 0",
-		]);
-	});
-
 	// guards: --config being ignored, so a config outside the scanned tree could not be used
 	it("takes the config from --config and scans from the config's directory", async () => {
 		expect(await check(["--root", join(fixture, "src"), "--config", join(fixture, "theodolite.toml")])).toBe(

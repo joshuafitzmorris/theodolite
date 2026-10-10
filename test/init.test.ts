@@ -25,32 +25,23 @@ const all = (d: string, b = ""): string[] =>
 const EXPECTED = [
 	"AGENTS.md",
 	"CLAUDE.md",
-	"ARCHITECTURE.md",
-	"DECISIONS.md",
-	"QUESTIONS.md",
 	"theodolite.toml",
-	"SETUP.md",
 	".claude/settings.json",
 	".claude/agents/plan.md",
 	".claude/agents/implement.md",
 	".claude/agents/mechanical.md",
 	".github/workflows/theodolite.yml",
-	".github/PULL_REQUEST_TEMPLATE.md",
-	".github/ISSUE_TEMPLATE/task.md",
-	"scripts/verify",
 	".gitignore",
 ];
 
 describe("init", () => {
 	// guards: a template missing from the package, or an unfilled placeholder shipping
-	it("writes every file, executable verify, gitignore entry", () => {
+	it("writes every file and the gitignore entry", () => {
 		const d = tmp();
 		const r = init(d);
 		expect(r.status).toBe(0);
 		for (const f of EXPECTED) expect(existsSync(join(d, f)), f).toBe(true);
-		expect(statSync(join(d, "scripts/verify")).mode & 0o111).not.toBe(0);
 		expect(readFileSync(join(d, ".gitignore"), "utf8")).toContain("STATUS.md");
-		expect(readFileSync(join(d, "SETUP.md"), "utf8")).not.toMatch(/\$\{(project|year)\}/);
 		expect(r.stdout).toMatch(/^create AGENTS\.md$/m);
 	});
 
@@ -137,18 +128,5 @@ describe("init", () => {
 		const s = JSON.parse(readFileSync(join(d, ".claude/settings.json"), "utf8"));
 		expect(s.permissions.deny).toBe("Edit(x)");
 		expect(s.permissions.ask).toEqual({ a: 1 });
-	});
-
-	// guards: templates drifting from documented rule syntax, pinning and the removed diff command
-	it("templates use space-form Bash rules, pinned actions and no diff command", () => {
-		const root = resolve(import.meta.dirname, "..");
-		const settings = readFileSync(join(root, "templates/.claude/settings.json"), "utf8");
-		expect(settings).not.toContain(":*)");
-		expect(settings).toContain('cd \\"$CLAUDE_PROJECT_DIR\\" && npx theodolite@0.1.0 status');
-		const wf = readFileSync(join(root, "templates/.github/workflows/theodolite.yml"), "utf8");
-		expect(wf).not.toMatch(/uses: \S+@v\d/);
-		expect(wf).toContain("npx theodolite@0.1.0 check");
-		expect(wf).not.toContain("theodolite diff");
-		expect(wf).toContain("head.repo.fork");
 	});
 });

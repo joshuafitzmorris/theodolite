@@ -4,43 +4,15 @@
 
 const USAGE = `theodolite <command> [options]
 
-  init            write theodolite.toml, AGENTS.md, hooks and CI into this repo
-  check           scan the tree against theodolite.toml (exit 1 on findings)
+  init            write theodolite.toml, the CI workflow and .claude settings; add the rules to AGENTS.md
+  check           scan against theodolite.toml (exit 1 on findings); --base <ref> scans only what changed
   report          print a proposed theodolite.toml from what the code does
-  status          hook script: append one plain-English line to STATUS.md
+  status          hook script: append a "needs you" line to STATUS.md when an agent asks a question
 
 Run \`theodolite <command> --help\` for options.`;
 
-const COMMAND_USAGE: Record<string, string> = {
-	init: `theodolite init [--force] [--dry-run] [--root <dir>]
-
-  --force       overwrite files that already exist (settings.json is always merged)
-  --dry-run     print what would happen, write nothing
-  --root <dir>  target directory (default: current directory)`,
-	check: `theodolite check [--root <dir>] [--config <file>] [--json] [--strict] [--architecture]
-
-  exit 0 clean or warnings only, 1 errors, 2 usage or config error
-  --root <dir>     project directory (default: current directory)
-  --config <file>  theodolite.toml to use (default: found walking up from --root)
-  --json           print findings as JSON
-  --strict         warnings count as errors
-  --architecture   print a "Who writes what" markdown section instead of findings`,
-	report: `theodolite report [--root <dir>] [--config <file>]
-
-  --root <dir>     project directory (default: current directory)
-  --config <file>  theodolite.toml whose [scan] and names to reuse
-  prints a proposed theodolite.toml to stdout; writes nothing`,
-	status: `theodolite status
-
-  no options; reads the hook event on stdin and appends one line to STATUS.md`,
-};
-
 async function main(argv: string[]): Promise<number> {
 	const [command, ...rest] = argv;
-	if (command !== undefined && command in COMMAND_USAGE && rest.some((a) => a === "-h" || a === "--help")) {
-		console.log(COMMAND_USAGE[command]);
-		return 0;
-	}
 	switch (command) {
 		case "init":
 			return (await import("./init/index.ts")).run(rest);

@@ -1,6 +1,7 @@
 // `theodolite check`: scan against theodolite.toml and print findings. With --base, only what changed.
 
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { basename } from "node:path";
 import { scanChanged } from "./diff.ts";
 import { type Config, loadConfig } from "./matrix.ts";
@@ -15,9 +16,18 @@ const USAGE = `theodolite check [--root <dir>] [--config <file>] [--json] [--str
   --base <ref>  scan only the files changed since <ref>, count only new write sites, and print the door verdict`;
 
 export async function run(argv: string[]): Promise<number> {
-	const started = begin(argv, USAGE, false);
+	const started = begin(argv, USAGE, true);
 	if (typeof started === "number") return started;
 	const { args, config } = started;
+	if (!existsSync(config.file)) {
+		if (args.base === undefined) {
+			console.error(
+				`theodolite.toml not found from ${args.root} upward. Run theodolite init, or pass --config.`,
+			);
+			return 2;
+		}
+		console.error("theodolite.toml not found: no matrix to enforce, doors only");
+	}
 	let result: ResolveResult;
 	let doors: string[] | undefined;
 	let ref = "HEAD";

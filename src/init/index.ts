@@ -209,6 +209,11 @@ export async function run(argv: string[]): Promise<number> {
 		let content = template(rel);
 		if (rel === "theodolite.toml" && hasSourceFiles(opts.root)) {
 			const proposed = await proposedConfig(opts.root);
+			// Source but nothing writes anything: no matrix to enforce. The door verdict still runs.
+			if (proposed && !proposed.includes("[resources.")) {
+				console.log(`skip ${rel} (report found no write sites; the door verdict still runs without it)`);
+				continue;
+			}
 			if (proposed) content = proposed;
 		}
 		console.log(`${exists ? "overwrite" : "create"} ${rel}`);

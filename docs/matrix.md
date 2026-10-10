@@ -118,7 +118,7 @@ theodolite.toml:9  [grandfathered] grew from 1 to 2 pairs since HEAD. Shrink it,
 
 `rule` is one of `undeclared-write`, `write-never`, `unresolved-target`, `unmapped-write`, `undeclared-constructor`, `undeclared-connection`, `grandfathered`, `stale-grandfathered`, `grandfathered-grew`. `severity` is `error`, `warning` or `note`. `resource` is `null` for `?` and unmapped sites.
 
-Exit codes: 0 clean or warnings only; 1 errors; 2 usage or config error. With no files matched, `check` warns and exits 0, or 1 under `--strict`.
+Exit codes: 0 clean or warnings only; 1 errors; 2 usage or config error. With no files matched, `check` warns and exits 0, or 1 under `--strict`. With no `theodolite.toml`, `check` exits 2, except under `--base`, where it reports doors only and says so on stderr.
 
 `report` prints and writes nothing. With no config it prints a full matrix. Every writing file is listed by exact path; unresolved sites go in an `# unmapped` block, one line per file (a lone site with its line, several with a count and their calls).
 

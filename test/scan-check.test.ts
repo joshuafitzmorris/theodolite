@@ -368,6 +368,18 @@ describe("check --base: only new sites count, and the door verdict", () => {
 		]);
 	});
 
+	// guards: a repo with no matrix losing the door verdict, which the opinions promise regardless of the matrix
+	it("checks doors only when there is no theodolite.toml", async () => {
+		const dir = repo({
+			"package.json": JSON.stringify({ dependencies: {} }),
+			"src/a.js": `${HDR}export const a = 1;\n`,
+		});
+		put(dir, { "package.json": JSON.stringify({ dependencies: { stripe: "1.0.0" } }) });
+		expect(await check(["--root", dir, "--base", "main"])).toBe(0);
+		expect(err.join("\n")).toContain("theodolite.toml not found: no matrix to enforce, doors only");
+		expect(text().split("\n").pop()).toBe("doors: dependency added stripe");
+	});
+
 	// guards: an unknown base ref being scanned as if nothing changed
 	it("exits 2 when the base cannot be resolved", async () => {
 		const dir = repo({ "theodolite.toml": USERS });

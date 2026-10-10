@@ -160,8 +160,8 @@ describe("init", () => {
 		expect(all(d)).toEqual([]);
 	});
 
-	// guards: init writing a config that `check` rejects with exit 2 (bad kind, undeclared grandfathered resource, empty include)
-	it("template config loads, and report output is used on a repo with sources", () => {
+	// guards: init writing a config that `check` rejects with exit 2, or writing a matrix for a repo with nothing to declare
+	it("template config loads, report output is used on a repo with sources, and no matrix is written without write sites", () => {
 		const check = (root: string) => spawnSync("node", [cli, "check", "--root", root], { encoding: "utf8" });
 		const empty = tmp();
 		init(empty);
@@ -173,6 +173,14 @@ describe("init", () => {
 		const toml = readFileSync(join(d, "theodolite.toml"), "utf8");
 		expect(toml).not.toContain("effects.email");
 		expect(check(d).status).not.toBe(2);
+		const quiet = tmp();
+		mkdirSync(join(quiet, "src"));
+		writeFileSync(join(quiet, "src/a.ts"), "export const x = 1;\n");
+		const r = init(quiet);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/^skip theodolite\.toml \(report found no write sites/m);
+		expect(existsSync(join(quiet, "theodolite.toml"))).toBe(false);
+		expect(existsSync(join(quiet, ".github/workflows/theodolite.yml"))).toBe(true);
 	});
 
 	// guards: unreadable settings.json exiting 0 as if the merge had worked

@@ -30,4 +30,4 @@ export const sdkFor = (ctor: string): Sdk | undefined => SDKS.find((s) => s.ctor
 
 /** Methods that read: not reported. Everything else on a client is an external write. */
 export const SDK_READ =
-	/^(?:retrieve|get|list|search|find|fetch|head|describe|count|exists|download|read|select|construct|verify|parse|on|off|to)/;
+	/^(?:retrieve|get|list|search|find|fetch|head|describe|count|exists|download|read|select|construct|parse|on|off|to)/;

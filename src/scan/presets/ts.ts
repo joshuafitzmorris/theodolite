@@ -290,6 +290,14 @@ function sdkHits(t: Tokens, ctx: FileContext): Hit[] {
 			});
 		}
 	}
+	// `import { stripe as payments } from "./clients"`: the local name is the client too.
+	for (const imp of ctx.imports) {
+		for (const part of (/\{([^}]*)\}/.exec(imp.clause)?.[1] ?? "").split(",")) {
+			const [orig = "", local = orig] = part.trim().split(/\s+as\s+/);
+			const sdk = SDKS.find((s) => s.receivers.test(orig));
+			if (sdk && local !== orig) bound.set(local, sdk);
+		}
+	}
 	for (const m of t.code.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)((?:\s*\.\s*[\w$]+)+)\s*\(/g)) {
 		const recv = m[1] ?? "";
 		const sdk = bound.get(recv) ?? SDKS.find((s) => s.receivers.test(recv));
@@ -315,7 +323,7 @@ function sdkHits(t: Tokens, ctx: FileContext): Hit[] {
 		if (method === "send") {
 			const command = /^\s*new\s+([A-Z]\w*)Command\b/.exec(t.code.slice(open + 1, open + 80))?.[1] ?? "";
 			if (/^(?:Get|List|Head|Describe|Select)/.test(command)) continue;
-			if (command) via = `${via}(new ${command}Command`;
+			if (command) via = `${via}(new ${command}Command)`;
 		}
 		out.push({
 			offset: m.index,

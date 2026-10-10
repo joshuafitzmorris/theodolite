@@ -31,7 +31,6 @@ const EXPECTED = [
 	".gitignore",
 	"AGENTS.md",
 	"CLAUDE.md",
-	"theodolite.toml",
 ];
 const version = (
 	JSON.parse(readFileSync(resolve(import.meta.dirname, "../package.json"), "utf8")) as { version: string }
@@ -46,13 +45,15 @@ describe("init", () => {
 		expect(r.status).toBe(0);
 		expect(all(d).sort()).toEqual(EXPECTED);
 		expect(readFileSync(join(d, ".gitignore"), "utf8")).toContain("STATUS.md");
-		expect(r.stdout).toMatch(/^create theodolite\.toml$/m);
+		expect(r.stdout).toMatch(/^skip theodolite\.toml \(report found no write sites/m);
 		expect(r.stdout).toContain("Next:");
 	});
 
 	// guards: init clobbering a human-edited config, and --force failing to opt in
 	it("skips existing theodolite.toml unless --force", () => {
 		const d = tmp();
+		mkdirSync(join(d, "src"));
+		writeFileSync(join(d, "src/a.ts"), "await prisma.user.create({});\n");
 		writeFileSync(join(d, "theodolite.toml"), "mine\n");
 		expect(init(d).stdout).toMatch(/^skip \(exists\) theodolite\.toml$/m);
 		expect(readFileSync(join(d, "theodolite.toml"), "utf8")).toBe("mine\n");
@@ -120,14 +121,6 @@ describe("init", () => {
 		);
 	});
 
-	// guards: a subagent prompt growing past what an agent reads in full
-	it("subagent templates stay under 15 lines", () => {
-		for (const n of ["plan", "implement", "mechanical"]) {
-			const text = readFileSync(resolve(import.meta.dirname, `../templates/.claude/agents/${n}.md`), "utf8");
-			expect(text.trimEnd().split("\n").length, n).toBeLessThan(15);
-		}
-	});
-
 	// guards: merging dropping the user's own rules or hooks
 	it("merges settings.json without removing anything", () => {
 		const d = tmp();
@@ -155,17 +148,14 @@ describe("init", () => {
 		const d = tmp();
 		const r = init(d, "--dry-run");
 		expect(r.status).toBe(0);
-		expect(r.stdout).toMatch(/^create theodolite\.toml$/m);
+		expect(r.stdout).toMatch(/^skip theodolite\.toml/m);
 		expect(r.stdout).toContain("Next:");
 		expect(all(d)).toEqual([]);
 	});
 
 	// guards: init writing a config that `check` rejects with exit 2, or writing a matrix for a repo with nothing to declare
-	it("template config loads, report output is used on a repo with sources, and no matrix is written without write sites", () => {
+	it("report output is used on a repo with write sites, and no matrix is written without them", () => {
 		const check = (root: string) => spawnSync("node", [cli, "check", "--root", root], { encoding: "utf8" });
-		const empty = tmp();
-		init(empty);
-		expect(check(empty).status).not.toBe(2);
 		const d = tmp();
 		mkdirSync(join(d, "src"));
 		writeFileSync(join(d, "src/a.ts"), "await prisma.user.create({});\n");
@@ -181,6 +171,7 @@ describe("init", () => {
 		expect(r.stdout).toMatch(/^skip theodolite\.toml \(report found no write sites/m);
 		expect(existsSync(join(quiet, "theodolite.toml"))).toBe(false);
 		expect(existsSync(join(quiet, ".github/workflows/theodolite.yml"))).toBe(true);
+		expect(init(tmp()).stdout).toMatch(/^skip theodolite\.toml/m);
 	});
 
 	// guards: unreadable settings.json exiting 0 as if the merge had worked

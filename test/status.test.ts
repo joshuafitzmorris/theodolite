@@ -32,6 +32,18 @@ describe("status", () => {
 		expect(buildLine(load("stop-question.json"), now, "/work/app", "feature-x")).toBe(
 			"2026-10-10 14:02  feature-x  Should I run the migration now?  default: not run; the migration waits for you.",
 		);
+		// The rules say "put the question and the default you're taking in your report": either order, or one line.
+		const oneLine = {
+			last_assistant_message: "Done.\nMay route.ts write db.order? default: no, moved into orders.ts",
+		};
+		expect(buildLine(oneLine, now, "/work/app", "b")).toBe(
+			"2026-10-10 14:02  b  May route.ts write db.order?  default: no, moved into orders.ts",
+		);
+		const then = { last_assistant_message: "Should I run the migration now?\nDefault: not run.\n" };
+		expect(buildLine(then, now, "/work/app", "b")).toBe(
+			"2026-10-10 14:02  b  Should I run the migration now?  default: not run.",
+		);
+		expect(needsHuman("Should I run it?\nDefault: no.\nI kept going on the rest.\nDone.")).toBe(false);
 	});
 
 	// guards: a message with no question producing a line, or a malformed payload failing the hook

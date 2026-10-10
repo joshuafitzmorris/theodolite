@@ -52,7 +52,7 @@ paths = ["db/**", ".github/**"]
 | `tables`, `aliases` | `[]` | `db` only; `tables` are normalised names, `aliases` exact identifiers or expression text |
 | `connections.allow`, `.match` | none, `[]` | no section disables the rule; `match` adds to the language defaults |
 | `grandfathered."<glob>"` | | resource keys; the file counts as a writer and is reported as a `TODO(tighten)` note |
-| `doors.paths` | built-in list | globs; replaces the list: `**/migrations/**`, `**/schema.prisma`, `**/drizzle/**`, `**/alembic/**`, `**/*.sql`, `**/auth/**`, `**/auth.ts`, `**/middleware.ts`, `.github/**` |
+| `doors.paths` | built-in list | globs; replaces the list: `**/migrations/**`, `**/*.prisma`, `**/drizzle/**`, `**/alembic/**`, `**/*.sql`, `**/auth/**`, `**/{auth,middleware,proxy}.{ts,js,mjs,cjs}`, `**/auth.config.*`, `.github/**` |
 
 Resource keys are `<kind>.<name>`, kind one of `db|external|effect|queue|bucket|fs|custom`. Default excludes: `**/{node_modules,dist,build,.venv,__pycache__,migrations}/**`, `**/*.d.ts`, and test files (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, anything under `test`, `tests` or `__tests__`). Globs are minimatch with `dot: true`, relative to the config file.
 
@@ -98,12 +98,12 @@ theodolite: 2 changed files, 1 new write site, 1 error, 0 warnings, 0 grandfathe
 doors: new writer src/api/c.ts -> db.users
 ```
 
-`doors: none` when there are none; otherwise entries are joined by `; `. Door kinds: `new writer <file> -> <resource>`, `new external call <file> -> <resource>`, `migration or schema file <path>`, `auth path <path>`, `CI path <path>`, `door path <path>` (when `[doors]` is set), `dependency added <names>`, `dependency file changed <path>`, `skip or only added <file> (<line>)`, `assertion deleted <file> (<n>)`.
+`doors: none` when there are none; otherwise entries are joined by `; `. Door kinds: `new writer <file> -> <resource>` and `new external call <file> -> <resource>` (only outside the resource's declared globs), `matrix changed <path>`, `migration or schema file <path>`, `auth path <path>`, `CI path <path>`, `door path <path>` (when `[doors]` is set), `dependency added <names>`, `dependency file changed <path>`, `skip or only added <file> (<the added line>)`, `assertion deleted <file> (<n>)`. A skipped or focused test is also a `test-skipped` error. A deleted `theodolite.toml` exits 2; a repository that never had one gets doors only.
 
-If `[grandfathered]` has more pairs than the committed `theodolite.toml` (the merge base under `--base`), `check` adds a warning, an error under `--strict`:
+If `[grandfathered]` has pairs the committed `theodolite.toml` (the merge base under `--base`) did not, `check` adds a warning, an error under `--strict`:
 
 ```
-theodolite.toml:9  [grandfathered] grew from 1 to 2 pairs since HEAD. Shrink it, or say in the PR why.
+theodolite.toml:9  [grandfathered] gained 1 pair since HEAD. Shrink it, or say in the PR why.
 ```
 
 `--json` prints one object. `doors` is present only with `--base`. `message` is not included.
@@ -116,9 +116,9 @@ theodolite.toml:9  [grandfathered] grew from 1 to 2 pairs since HEAD. Shrink it,
   "family":"prisma","confidence":"high","fix":{"key":"writers","add":"src/api/routes/users.ts"}}]}
 ```
 
-`rule` is one of `undeclared-write`, `write-never`, `unresolved-target`, `unmapped-write`, `undeclared-constructor`, `undeclared-connection`, `grandfathered`, `stale-grandfathered`, `grandfathered-grew`. `severity` is `error`, `warning` or `note`. `resource` is `null` for `?` and unmapped sites.
+`rule` is one of `undeclared-write`, `write-never`, `unresolved-target`, `unmapped-write`, `undeclared-constructor`, `undeclared-connection`, `grandfathered`, `stale-grandfathered`, `grandfathered-grew`, `test-skipped`. `severity` is `error`, `warning` or `note`. `resource` is `null` for `?` and unmapped sites.
 
-Exit codes: 0 clean or warnings only; 1 errors; 2 usage or config error. With no files matched, `check` warns and exits 0, or 1 under `--strict`. With no `theodolite.toml`, `check` exits 2, except under `--base`, where it reports doors only and says so on stderr.
+Exit codes: 0 clean or warnings only; 1 errors; 2 usage or config error. With no files matched, `check` warns and exits 0, or 1 under `--strict`. With no `theodolite.toml`, `check` exits 2, except under `--base`, where it reports doors only and says so on stderr. An empty `theodolite.toml` exits 2 too: `report > theodolite.toml` empties the file before `report` reads it.
 
 `report` prints and writes nothing. With no config it prints a full matrix. Every writing file is listed by exact path; unresolved sites go in an `# unmapped` block, one line per file (a lone site with its line, several with a count and their calls).
 

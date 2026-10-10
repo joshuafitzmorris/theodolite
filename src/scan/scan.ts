@@ -58,12 +58,23 @@ export function findConfig(start: string): string | null {
 function loadFor(args: Args, optional: boolean): { config: Config } | { error: string } {
 	const file = args.config ?? findConfig(args.root);
 	if (!file || !existsSync(file)) {
-		if (optional) return { config: emptyConfig(args.root) };
+		// `--config` naming a file that does not exist asks for a config with nothing in it, at that path:
+		// init seeds a fresh matrix this way even when a matrix exists or a parent directory has one.
+		if (optional) return { config: emptyConfig(file ?? join(args.root, "theodolite.toml")) };
 		return {
 			error: `theodolite.toml not found from ${args.root} upward. Run theodolite init, or pass --config.`,
 		};
 	}
-	const loaded = loadConfig(readFileSync(file, "utf8"), file);
+	const text = readFileSync(file, "utf8");
+	if (text.trim() === "") {
+		// A shell redirect empties the file before the command reads it: `report > theodolite.toml` would
+		// otherwise see no config and print a fresh matrix that widens every writer.
+		const name = basename(file);
+		return {
+			error: `${name} is empty. Restore it (git checkout -- ${name}) and write report output elsewhere.`,
+		};
+	}
+	const loaded = loadConfig(text, file);
 	if (loaded.ok) return { config: loaded.config };
 	return { error: loaded.errors.map((e) => `${basename(file)}:${e.line}:${e.col}  ${e.message}`).join("\n") };
 }

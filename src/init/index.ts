@@ -91,7 +91,8 @@ function hasSourceFiles(dir: string, depth = 0): boolean {
 	return false;
 }
 
-// Run `theodolite report` for the target repo and return what it printed to stdout.
+// Run `theodolite report` for the target repo with no config, so the proposal is fresh even when a matrix
+// exists (--force) or a parent directory has one, and return what it printed to stdout.
 async function proposedConfig(root: string): Promise<string | undefined> {
 	const original = console.log;
 	let captured = "";
@@ -100,7 +101,7 @@ async function proposedConfig(root: string): Promise<string | undefined> {
 	};
 	let code: number;
 	try {
-		code = await runReport(["--root", root]);
+		code = await runReport(["--root", root, "--config", join(root, ".theodolite-seed.toml")]);
 	} catch {
 		return undefined;
 	} finally {
@@ -199,6 +200,7 @@ export async function run(argv: string[]): Promise<number> {
 		writeFileSync(abs, content);
 	};
 
+	let wroteMatrix = existsSync(join(opts.root, "theodolite.toml"));
 	// theodolite.toml, the workflow and the subagent files: create, or overwrite with --force.
 	for (const rel of ["theodolite.toml", ".github/workflows/theodolite.yml", ...AGENT_FILES]) {
 		const exists = existsSync(join(opts.root, rel));
@@ -206,16 +208,17 @@ export async function run(argv: string[]): Promise<number> {
 			console.log(`skip (exists) ${rel}`);
 			continue;
 		}
-		let content = template(rel);
-		if (rel === "theodolite.toml" && hasSourceFiles(opts.root)) {
-			const proposed = await proposedConfig(opts.root);
-			// Source but nothing writes anything: no matrix to enforce. The door verdict still runs.
-			if (proposed && !proposed.includes("[resources.")) {
+		let content: string;
+		if (rel === "theodolite.toml") {
+			// Nothing writes anything yet: no matrix to enforce. The door verdict still runs without one.
+			const proposed = hasSourceFiles(opts.root) ? await proposedConfig(opts.root) : undefined;
+			if (!proposed?.includes("[resources.")) {
 				console.log(`skip ${rel} (report found no write sites; the door verdict still runs without it)`);
 				continue;
 			}
-			if (proposed) content = proposed;
-		}
+			content = proposed;
+			wroteMatrix = true;
+		} else content = template(rel);
 		console.log(`${exists ? "overwrite" : "create"} ${rel}`);
 		write(rel, content);
 	}
@@ -278,15 +281,22 @@ export async function run(argv: string[]): Promise<number> {
 	}
 	if (opts.dryRun) console.log("dry run: nothing written");
 
-	console.log("\nNext:");
-	console.log(
-		"  1. Commit these files on a branch and open a pull request. The workflow prints `doors: none` or the doors the PR opens.",
-	);
-	console.log(
-		"  2. Review theodolite.toml: replace each TODO(tighten) path with a glob you trust. Agents cannot edit it.",
-	);
-	if (!detected) {
-		console.log("  3. Rule 1 names `npm run check`; change it in AGENTS.md if your check command differs.");
+	const next = [
+		"Commit these files on a branch and open a pull request. The workflow prints `doors: none` or the doors the PR opens.",
+	];
+	if (wroteMatrix) {
+		next.push(
+			"Review theodolite.toml: replace each TODO(tighten) path with a glob you trust. Agents cannot edit it.",
+		);
+		next.push(
+			detected
+				? `Rule 1 names \`${vars.check}\`; add \`npx theodolite check\` to it so the matrix runs before an agent says done.`
+				: "Rule 1 names `npm run check`; change it in AGENTS.md to your check command, with `npx theodolite check` in it.",
+		);
+	} else if (!detected) {
+		next.push("Rule 1 names `npm run check`; change it in AGENTS.md if your check command differs.");
 	}
+	console.log("\nNext:");
+	for (const [i, line] of next.entries()) console.log(`  ${i + 1}. ${line}`);
 	return 0;
 }

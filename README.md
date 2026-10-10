@@ -6,7 +6,7 @@ Opinions on running coding agents, kept small, with a check behind each one that
 
 1. **Declare boundaries; don't discover them in review.** Who writes what is a file. A new writer fails the build. [check]
 
-2. **TDD is the wrong default for agents.** A test written first pins an implementation before you've seen its shape, and an agent makes it green by weakening it. Write tests after the shape settles, only for failures you can name, and treat a skipped or loosened test as a build failure. [door verdict]
+2. **TDD is the wrong default for agents.** A test written first pins an implementation before you've seen its shape, and an agent makes it green by weakening it. Write tests after the shape settles, only for failures you can name, and treat a skipped or loosened test as a build failure. [check fails on a skipped or focused test; a deleted assertion is a door]
 
 3. **Simple beats clever.** You are not Google; you don't have its volume or its headcount. One deployable, one repo, no abstraction before its third caller, no service until a boundary forces one. [stance; the matrix makes "a boundary forces one" visible]
 
@@ -30,12 +30,12 @@ npx theodolite init
 
 | What | Where |
 |---|---|
-| The matrix, seeded from the code. Skipped, and said so, when nothing in the repository writes anything | `theodolite.toml` |
+| The matrix, seeded from the code. Skipped, and said so, when nothing in the repository writes anything yet | `theodolite.toml` |
 | The workflow: `check --base` on every pull request, one comment, the `doors:none` label | `.github/workflows/theodolite.yml` |
 | Permissions, hooks and the three subagents, merged into what you have | `.claude/settings.json`, `.claude/agents/` |
 | Seven rules for agents, the opinions above in the imperative | appended to `AGENTS.md`, else `CLAUDE.md`; both created when neither exists |
 
-It prints what to do next instead of writing a checklist, never overwrites `AGENTS.md`, and does nothing on a second run. The permissions deny edits to the rules, the permissions, `.env*` and `theodolite.toml` (including `>` redirects into it), and ask before migrations, schema files, dependencies, auth, CI, deploys, pushes and merges. The Stop hook writes a line to one `STATUS.md`, shared by every worktree, only when an agent's last message asks you something: time, branch, question, the default it took.
+It prints what to do next instead of writing a checklist, adds `STATUS.md` to `.gitignore`, never overwrites `AGENTS.md`, and does nothing on a second run. The permissions deny edits to the rules, the permissions, `.env*` and `theodolite.toml` (including `>` redirects into it), and ask before migrations, schema files, dependencies, auth, CI, deploys, pushes and merges. The Stop hook writes a line to one `STATUS.md`, shared by every worktree, only when an agent's last message asks you something: time, branch, question, the default it took.
 
 ## The matrix
 
@@ -64,14 +64,14 @@ On an existing repository `report` adds undeclared writes to `[grandfathered]` a
 
 ## The door verdict
 
-`check --base origin/main` scans only the files a pull request changed, counts only the write sites that are new since the base, fails on findings, and ends with one line:
+`check --strict --base origin/main` scans only the files a pull request changed, counts only the write sites that are new since the base, fails on findings (a write nobody declared included), and ends with one line:
 
 ```
 theodolite: 1 changed file, 2 new write sites, 2 errors, 0 warnings, 0 grandfathered
 doors: new writer src/app/api/checkout/route.ts -> db.order; new external call src/app/api/checkout/route.ts -> external.stripe
 ```
 
-`doors: none`, or every door the change opens: a new writer or external call, a migration or schema file, a dependency added, an auth or CI path touched, a test skipped or focused, an assertion deleted. A pull request with no doors and a description gets the label `doors:none`.
+`doors: none`, or every door the change opens: a new writer or external call outside the declared globs, the matrix itself, a migration or schema file, a dependency added, an auth or CI path touched, a test skipped or focused (also a failure), an assertion deleted. A pull request with no doors and a description gets the label `doors:none`.
 
 ## Commands
 

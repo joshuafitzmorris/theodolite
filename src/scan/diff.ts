@@ -2,12 +2,12 @@
 // sites that are new, and list the doors the change opens.
 
 import { spawnSync } from "node:child_process";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { readIfExists } from "../shared/fs.ts";
 import { type FileFacts, scanFile, setupFor } from "./detect.ts";
-import { type Config, inGlobs } from "./matrix.ts";
+import { type Config, globRe, inGlobs } from "./matrix.ts";
 import { PRESETS } from "./presets/index.ts";
-import { type Resolved, type ResolveResult, resolveAll } from "./resolve.ts";
+import { type Finding, type Resolved, type ResolveResult, resolveAll } from "./resolve.ts";
 import { squash } from "./tokens.ts";
 import { isBinary, isTestFile, readSource, walk } from "./walk.ts";
 
@@ -15,14 +15,18 @@ import { isBinary, isTestFile, readSource, walk } from "./walk.ts";
 export const DOOR_PATHS: { label: string; globs: string[] }[] = [
 	{
 		label: "migration or schema file",
-		globs: ["**/migrations/**", "**/schema.prisma", "**/drizzle/**", "**/alembic/**", "**/*.sql"],
+		globs: ["**/migrations/**", "**/*.prisma", "**/drizzle/**", "**/alembic/**", "**/*.sql"],
 	},
-	{ label: "auth path", globs: ["**/auth/**", "**/auth.ts", "**/middleware.ts"] },
+	{
+		label: "auth path",
+		globs: ["**/auth/**", "**/{auth,middleware,proxy}.{ts,js,mjs,cjs}", "**/auth.config.*"],
+	},
 	{ label: "CI path", globs: [".github/**"] },
 ];
 const DEPENDENCY_FILE =
 	/(?:^|\/)(?:package\.json|requirements[^/]*\.txt|pyproject\.toml|Pipfile|go\.mod|Cargo\.toml|Gemfile)$/;
-const SKIP_ADDED = /\.(?:only|skip)\s*\(|\b(?:xit|xdescribe|xtest)\s*\(|@pytest\.mark\.skip/;
+const SKIP_ADDED =
+	/\.(?:only|skip|skipIf|runIf)\s*\(|\b(?:xit|xdescribe|xtest|fit|fdescribe|ftest)\s*\(|@pytest\.mark\.skip/;
 const ASSERTION = /\b(?:expect|assert\w*)\s*[(.]|^\s*assert\s|\.should\b/;
 
 function git(dir: string, args: string[]): { ok: boolean; out: string } {
@@ -52,6 +56,12 @@ const atBase = (dir: string, changed: Changed, file: string): string | null => {
 	const shown = git(dir, ["show", `${changed.mergeBase}:${changed.prefix}${file}`]);
 	return shown.ok && !isBinary(Buffer.from(shown.out)) ? shown.out : null;
 };
+
+/** True when `file` (relative to `dir`) exists at the merge base with `base`. */
+export function existedAtBase(dir: string, base: string, file: string): boolean {
+	const changed = changedFiles(dir, base);
+	return "error" in changed ? false : atBase(dir, changed, file) !== null;
+}
 
 const siteKey = (s: FileFacts["sites"][number]) => `${s.kind}|${s.family}|${s.via}|${s.target}|${s.receiver}`;
 
@@ -97,24 +107,48 @@ export function scanChanged(cfg: Config, base: string, strict: boolean): BaseSca
 	}
 	const result = resolveAll(cfg, head, changed.files.length, strict, false);
 	const previous = resolveAll(cfg, before, before.length, strict, false);
-	return { result, doors: findDoors(cfg, changed, result, previous), mergeBase: changed.mergeBase };
+	const { doors, findings } = findDoors(cfg, changed, result, previous);
+	result.findings.push(...findings);
+	return { result, doors, mergeBase: changed.mergeBase };
 }
 
 const resourceOf = (s: Resolved) => s.resources[0] ?? s.proposed?.key ?? "?";
 
-/** One entry per door the change opens, in a fixed order: writers, paths, dependencies, tests. */
-export function findDoors(cfg: Config, changed: Changed, head: ResolveResult, base: ResolveResult): string[] {
+/** True when the matrix lets `file` write the first resource of `s`: inside the declared boundary, so not a door. */
+function declared(cfg: Config, s: Resolved): boolean {
+	const r = cfg.resources.find((x) => x.key === s.resources[0]);
+	if (!r) return false;
+	return (
+		inGlobs(s.file, r.writers) ||
+		(r.constructors !== null && inGlobs(s.file, r.constructors)) ||
+		cfg.grandfathered.some((g) => g.resources.includes(r.key) && globRe(g.glob)?.test(s.file))
+	);
+}
+
+/**
+ * One entry per door the change opens, in a fixed order: writers, the matrix, paths, dependencies, tests.
+ * A skipped or focused test is also a finding: it never passes.
+ */
+export function findDoors(
+	cfg: Config,
+	changed: Changed,
+	head: ResolveResult,
+	base: ResolveResult,
+): { doors: string[]; findings: Finding[] } {
 	const doors: string[] = [];
+	const findings: Finding[] = [];
 	const pairOf = (s: Resolved) => `${s.file}|${resourceOf(s)}`;
 	const had = new Set(base.sites.map(pairOf));
 	const seen = new Set<string>();
 	for (const s of head.sites) {
-		if (had.has(pairOf(s)) || seen.has(pairOf(s))) continue;
+		if (had.has(pairOf(s)) || seen.has(pairOf(s)) || declared(cfg, s)) continue;
 		seen.add(pairOf(s));
 		const resource = resourceOf(s);
 		const external = s.site.kind === "http" || /^(?:external|effect)\./.test(resource);
 		doors.push(`${external ? "new external call" : "new writer"} ${s.file} -> ${resource}`);
 	}
+	const matrix = relative(cfg.dir, cfg.file).split("\\").join("/");
+	if (changed.files.includes(matrix)) doors.push(`matrix changed ${matrix}`);
 	const groups = cfg.doors ? [{ label: "door path", globs: cfg.doors }] : DOOR_PATHS;
 	for (const file of changed.files) {
 		const group = groups.find((g) => inGlobs(file, g.globs));
@@ -122,8 +156,12 @@ export function findDoors(cfg: Config, changed: Changed, head: ResolveResult, ba
 	}
 	for (const file of changed.files.filter((f) => DEPENDENCY_FILE.test(f)))
 		doors.push(...dependencyDoors(cfg.dir, changed, file));
-	for (const file of changed.files.filter(isTestFile)) doors.push(...testDoors(cfg.dir, changed, file));
-	return doors;
+	for (const file of changed.files.filter(isTestFile)) {
+		const t = testDoors(cfg.dir, changed, file);
+		doors.push(...t.doors);
+		findings.push(...t.findings);
+	}
+	return { doors, findings };
 }
 
 const asObject = (v: unknown): Record<string, unknown> =>
@@ -180,16 +218,36 @@ function diffLines(dir: string, changed: Changed, file: string): { added: string
 	return { added, removed };
 }
 
-function testDoors(dir: string, changed: Changed, file: string): string[] {
+function testDoors(dir: string, changed: Changed, file: string): { doors: string[]; findings: Finding[] } {
 	const { added, removed } = diffLines(dir, changed, file);
 	const doors: string[] = [];
+	const findings: Finding[] = [];
 	const skip = added.find((l) => SKIP_ADDED.test(l));
-	if (skip !== undefined) doors.push(`skip or only added ${file} (${squash(skip).slice(0, 60)})`);
+	if (skip !== undefined) {
+		const shown = squash(skip).slice(0, 60);
+		doors.push(`skip or only added ${file} (${shown})`);
+		const lines = (readIfExists(join(dir, file)) ?? "").split(/\r?\n/);
+		const line = lines.indexOf(skip) + 1;
+		findings.push({
+			rule: "test-skipped",
+			severity: "error",
+			file,
+			line: line > 0 ? line : 1,
+			col: 1,
+			resource: null,
+			target: shown,
+			via: shown,
+			family: "test",
+			confidence: "high",
+			fix: null,
+			message: `skips or focuses a test (${shown}). Fix the test or say in the PR why it must be skipped.`,
+		});
+	}
 	const trimmed = (xs: string[]) => xs.filter((l) => ASSERTION.test(l)).map((l) => l.trim());
 	const gone = new Map<string, number>();
 	for (const l of trimmed(removed)) gone.set(l, (gone.get(l) ?? 0) + 1);
 	for (const l of trimmed(added)) if ((gone.get(l) ?? 0) > 0) gone.set(l, (gone.get(l) ?? 0) - 1);
 	const deleted = [...gone.values()].reduce((n, x) => n + x, 0);
 	if (deleted > 0) doors.push(`assertion deleted ${file} (${deleted})`);
-	return doors;
+	return { doors, findings };
 }

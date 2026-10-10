@@ -13,23 +13,33 @@ type Json = Record<string, unknown>;
 const QUESTION_WORD =
 	/^(?:who|what|when|where|why|which|how|should|shall|can|could|would|will|do|does|did|is|are|may|want|ok|okay)\b/i;
 
-function finalLine(message: string): string {
-	const lines = message
-		.split("\n")
-		.map((l) => l.trim())
-		.filter(Boolean);
-	return (lines[lines.length - 1] ?? "").replace(/^(?:[-*>]|\d+[.)])\s+/, "");
-}
+const DEFAULT_CLAUSE = /\s*\(?\bdefault(?::|\s+is\b|ing\s+to\b|\s+taken\b).*$/i;
 
-// A question addressed to the reader: the final line ends in "?" outside any URL or code span
-// and starts with a question word or mentions "you".
-export function needsHuman(message: string): boolean {
-	const prose = finalLine(message)
+const isQuestion = (line: string): boolean => {
+	const prose = line
 		.replace(/`[^`]*`/g, "")
 		.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S*/gi, "")
+		.replace(DEFAULT_CLAUSE, "")
 		.trim();
 	return prose.endsWith("?") && (QUESTION_WORD.test(prose) || /\byou(?:r|rs)?\b/i.test(prose));
+};
+
+// The question addressed to the reader: among the last three lines, the last one that ends in "?" (with a
+// trailing "default: ..." clause set aside) outside any URL or code span, starting with a question word or
+// mentioning "you". The rules say "put the question and the default you're taking in your report", so the
+// default may follow the question on its own line or on the same one.
+export function question(message: string): string | null {
+	const lines = message
+		.split("\n")
+		.map((l) => l.trim().replace(/^(?:[-*>]|\d+[.)])\s+/, ""))
+		.filter(Boolean)
+		.slice(-3)
+		.reverse();
+	const hit = lines.find(isQuestion);
+	return hit === undefined ? null : hit.replace(DEFAULT_CLAUSE, "").trim();
 }
+
+export const needsHuman = (message: string): boolean => question(message) !== null;
 
 function cut(text: string, max: number): string {
 	return text.length > max ? `${text.slice(0, max)}…` : text;
@@ -37,11 +47,19 @@ function cut(text: string, max: number): string {
 
 // The rest of the line after the last "default:", "default is" or "defaulting to".
 function defaultTaken(message: string): string {
-	const hits = [...message.matchAll(/default:|default is|defaulting to/gi)];
+	const hits = [...message.matchAll(/\bdefault(?::|\s+is\b|ing\s+to\b|\s+taken:?)/gi)];
 	const hit = hits[hits.length - 1];
 	if (!hit) return "not stated";
 	const rest = message.slice(hit.index + hit[0].length).split("\n")[0] ?? "";
-	return cut(rest.trim(), 120) || "not stated";
+	return (
+		cut(
+			rest
+				.trim()
+				.replace(/^[\s:]+/, "")
+				.replace(/\)\s*$/, ""),
+			120,
+		) || "not stated"
+	);
 }
 
 function two(n: number): string {
@@ -64,8 +82,8 @@ export function currentBranch(cwd: string): string {
 export function buildLine(input: Json, now: Date, cwd: string, branch = currentBranch(cwd)): string {
 	const message = typeof input.last_assistant_message === "string" ? input.last_assistant_message : "";
 	const agent = typeof input.agent_type === "string" && input.agent_type ? `${input.agent_type}  ` : "";
-	const question = cut(finalLine(message), 160);
-	return `${stamp(now)}  ${branch}  ${agent}${question}  default: ${defaultTaken(message)}`;
+	const asked = cut(question(message) ?? "", 160);
+	return `${stamp(now)}  ${branch}  ${agent}${asked}  default: ${defaultTaken(message)}`;
 }
 
 // The parent of the repository's common .git directory (the main worktree root), so every linked

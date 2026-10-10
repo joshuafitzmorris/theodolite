@@ -114,12 +114,19 @@ describe("check: the project fixture end to end", () => {
 		expect(text()).toContain("2 errors, 0 warnings, 1 grandfathered");
 	});
 
-	// guards: a config error exiting 1 or losing its position, and a missing config being scanned as empty
-	it("exits 2 with a positioned message on a config error or a missing config", async () => {
+	// guards: a config error exiting 1 or losing its position, a missing config being scanned as empty, and an emptied one (`report > theodolite.toml`) being read as no config
+	it("exits 2 with a positioned message on a config error, a missing config or an emptied one", async () => {
 		const dir = copy();
 		writeFileSync(join(dir, "theodolite.toml"), `[resources."db.users"]\nwriter = []\n`);
 		expect(await check(["--root", dir])).toBe(2);
 		expect(err.join("\n")).toContain('theodolite.toml:2:1  unknown key "writer"');
+		err = [];
+		writeFileSync(join(dir, "theodolite.toml"), "");
+		expect(await check(["--root", dir])).toBe(2);
+		expect(await report(["--root", dir])).toBe(2);
+		expect(err.join("\n")).toContain(
+			"theodolite.toml is empty. Restore it (git checkout -- theodolite.toml)",
+		);
 		err = [];
 		const empty = temp("theodolite-empty-");
 		expect(await check(["--root", empty])).toBe(2);
@@ -350,11 +357,35 @@ describe("check --base: only new sites count, and the door verdict", () => {
 			".github/workflows/ci.yml": "name: ci\n",
 		});
 		commit(dir, "feature");
-		expect(await check(["--root", dir, "--base", "main"])).toBe(0);
+		expect(await check(["--root", dir, "--base", "main"])).toBe(1);
 		expect(text().split("\n")).toEqual([
-			"theodolite: 4 changed files, 0 new write sites, 0 errors, 0 warnings, 0 grandfathered",
+			'test/x.test.js:2  skips or focuses a test (it.only("a", () => {). Fix the test or say in the PR why it must be skipped.',
+			"theodolite: 4 changed files, 0 new write sites, 1 error, 0 warnings, 0 grandfathered",
 			'doors: CI path .github/workflows/ci.yml; migration or schema file prisma/schema.prisma; dependency added stripe; skip or only added test/x.test.js (it.only("a", () => {); assertion deleted test/x.test.js (1)',
 		]);
+	});
+
+	// guards: the matrix itself being edited or deleted in a PR without the human seeing it, and a new file inside a trusted glob being called a door
+	it("treats a changed matrix as a door, refuses a deleted one, and trusts the declared globs", async () => {
+		const dir = repo({ "theodolite.toml": USERS, "src/users/a.js": UPDATE });
+		put(dir, { "theodolite.toml": `${USERS}\n[doors]\npaths = []\n`, "src/users/b.js": UPDATE });
+		expect(await check(["--root", dir, "--base", "main"])).toBe(0);
+		expect(text().split("\n").pop()).toBe("doors: matrix changed theodolite.toml");
+		rmSync(join(dir, "theodolite.toml"));
+		out = [];
+		expect(await check(["--root", dir, "--base", "main"])).toBe(2);
+		expect(err.join("\n")).toContain("theodolite.toml was deleted since main. Restore it.");
+	});
+
+	// guards: a new write to a resource nobody declared passing CI as a warning, which the first opinion forbids
+	it("fails a new unmapped write under --strict", async () => {
+		const dir = repo({ "theodolite.toml": USERS, "src/users/a.js": UPDATE });
+		put(dir, { "src/audit/log.js": `${HDR}export const log = (prisma) => prisma.auditLog.create({});\n` });
+		expect(await check(["--root", dir, "--base", "main"])).toBe(0);
+		out = [];
+		expect(await check(["--root", dir, "--strict", "--base", "main"])).toBe(1);
+		expect(text()).toContain("unmapped (error)");
+		expect(text()).toContain("doors: new writer src/audit/log.js -> db.audit_log");
 	});
 
 	// guards: a change inside the owner module being called a door, so door-free PRs never get the label
@@ -399,7 +430,7 @@ describe("check: the grandfathered count may only fall", () => {
 		put(dir, { "theodolite.toml": TWO, "src/jobs/y.js": UPDATE });
 		expect(await check(["--root", dir])).toBe(0);
 		expect(text()).toContain(
-			"theodolite.toml:9  [grandfathered] grew from 1 to 2 pairs since HEAD. Shrink it, or say in the PR why.",
+			"theodolite.toml:9  [grandfathered] gained 1 pair since HEAD. Shrink it, or say in the PR why.",
 		);
 		expect(text()).toContain("0 errors, 1 warning, 2 grandfathered");
 		out = [];
@@ -407,7 +438,7 @@ describe("check: the grandfathered count may only fall", () => {
 		expect(text()).toContain("1 error, 0 warnings, 2 grandfathered");
 		out = [];
 		expect(await check(["--root", dir, "--base", "main", "--strict"])).toBe(1);
-		expect(text()).toContain("[grandfathered] grew from 1 to 2 pairs since the base.");
+		expect(text()).toContain("[grandfathered] gained 1 pair since the base.");
 		commit(dir, "grown");
 		out = [];
 		expect(await check(["--root", dir, "--strict"])).toBe(0);

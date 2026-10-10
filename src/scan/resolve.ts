@@ -15,7 +15,8 @@ export type Rule =
 	| "undeclared-connection"
 	| "grandfathered"
 	| "stale-grandfathered"
-	| "grandfathered-grew";
+	| "grandfathered-grew"
+	| "test-skipped";
 
 export type Severity = "error" | "warning" | "note";
 

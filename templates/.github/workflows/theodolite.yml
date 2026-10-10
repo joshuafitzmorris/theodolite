@@ -1,6 +1,7 @@
 name: theodolite
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 permissions:
   contents: read
@@ -17,12 +18,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      # Fails on findings in the files this PR changed. The last line is the door verdict.
+      # Fails on findings in the files this PR changed, warnings included. The last line is the door verdict.
       - name: check
         shell: bash
         run: |
           set -o pipefail
-          npx theodolite@${version} check --base "origin/${{ github.base_ref }}" 2>&1 | tee check.txt
+          npx theodolite@${version} check --strict --base "origin/${{ github.base_ref }}" 2>&1 | tee check.txt
       - name: comment and label
         if: ${{ always() && !github.event.pull_request.head.repo.fork }}
         continue-on-error: true

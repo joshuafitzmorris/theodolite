@@ -164,8 +164,9 @@ const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x)
 const isObj = (v: unknown): v is Record<string, unknown> =>
 	typeof v === "object" && v !== null && !Array.isArray(v);
 
-export function emptyConfig(dir: string): Config {
-	const loaded = loadConfig("", resolve(dir, "theodolite.toml"));
+/** A config with nothing in it, as if `file` were an empty theodolite.toml. */
+export function emptyConfig(file: string): Config {
+	const loaded = loadConfig("", resolve(file));
 	if (!loaded.ok) throw new Error("an empty config is always valid");
 	return loaded.config;
 }

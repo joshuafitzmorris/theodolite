@@ -1,7 +1,6 @@
 {
 	"hook_event_name": "Stop",
 	"session_id": "abc123",
-	"transcript_path": "TRANSCRIPT",
 	"cwd": "/work/app",
 	"last_assistant_message": "Parser fixed and tests pass.\nDone."
 }

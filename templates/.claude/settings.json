@@ -6,19 +6,39 @@
       "Edit(.claude/**)",
       "Edit(.env*)",
       "Read(.env*)",
-      "Edit(theodolite.toml)"
+      "Edit(theodolite.toml)",
+      "Bash(* > theodolite.toml*)",
+      "Bash(* >> theodolite.toml*)"
     ],
     "ask": [
       "Edit(**/migrations/**)",
-      "Edit(package.json)",
+      "Edit(**/schema.prisma)",
+      "Edit(**/drizzle/**)",
+      "Edit(**/alembic/**)",
       "Edit(**/auth/**)",
+      "Edit(**/auth.ts)",
+      "Edit(**/middleware.ts)",
+      "Edit(.github/**)",
       "Bash(git push *)",
+      "Bash(gh pr merge *)",
       "Bash(npm install *)",
+      "Bash(npm i *)",
+      "Bash(pnpm add *)",
+      "Bash(yarn add *)",
+      "Bash(bun add *)",
+      "Bash(pip install *)",
+      "Bash(uv add *)",
       "Bash(npm publish *)",
       "Bash(npm run deploy *)",
       "Bash(npm run migrate *)",
       "Bash(npx prisma migrate *)",
+      "Bash(npx prisma db push *)",
+      "Bash(prisma db push *)",
       "Bash(npx drizzle-kit push *)",
+      "Bash(drizzle-kit push *)",
+      "Bash(npx supabase db push *)",
+      "Bash(supabase db push *)",
+      "Bash(psql *)",
       "Bash(alembic upgrade *)",
       "Bash(vercel deploy *)",
       "Bash(fly deploy *)",
@@ -28,10 +48,10 @@
   },
   "hooks": {
     "Stop": [
-      { "hooks": [{ "type": "command", "command": "cd \"$CLAUDE_PROJECT_DIR\" && npx theodolite@0.1.0 status", "timeout": 20 }] }
+      { "hooks": [{ "type": "command", "command": "cd \"$CLAUDE_PROJECT_DIR\" && npx theodolite@${version} status", "timeout": 20 }] }
     ],
     "SubagentStop": [
-      { "hooks": [{ "type": "command", "command": "cd \"$CLAUDE_PROJECT_DIR\" && npx theodolite@0.1.0 status", "timeout": 20 }] }
+      { "hooks": [{ "type": "command", "command": "cd \"$CLAUDE_PROJECT_DIR\" && npx theodolite@${version} status", "timeout": 20 }] }
     ]
   }
 }

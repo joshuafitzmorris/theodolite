@@ -5,6 +5,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   theodolite:
@@ -16,26 +17,25 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
-      # Warn mode: findings are posted but do not fail the job. Remove `|| true` to enforce.
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      # Fails on findings in the files this PR changed. The last line is the door verdict.
       - name: check
-        run: npx theodolite@0.1.0 check > check.txt 2>&1 || true
-      - name: comment
-        if: ${{ !github.event.pull_request.head.repo.fork }}
+        shell: bash
+        run: |
+          set -o pipefail
+          node dist/cli.js check --base "origin/${{ github.base_ref }}" 2>&1 | tee check.txt
+      - name: comment and label
+        if: ${{ always() && !github.event.pull_request.head.repo.fork }}
         continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');
             const marker = '<!-- theodolite -->';
-            const read = (f) => fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim() : '';
-            const check = read('check.txt') || 'No findings.';
-            const body = [
-              marker,
-              '### theodolite',
-              '```',
-              check,
-              '```',
-            ].join('\n');
+            const check = fs.existsSync('check.txt') ? fs.readFileSync('check.txt', 'utf8').trim() : '';
+            const doorFree = /^doors: none$/m.test(check);
+            const body = [marker, '### theodolite', '```', check || 'No output.', '```'].join('\n');
             const { owner, repo } = context.repo;
             const issue_number = context.issue.number;
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number });
@@ -44,4 +44,19 @@ jobs:
               await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
             } else {
               await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+            const name = 'doors:none';
+            if (doorFree) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch {
+                await github.rest.issues.createLabel({ owner, repo, name, color: '0e8a16', description: 'theodolite: this PR opens no door' });
+              }
+              await github.rest.issues.addLabels({ owner, repo, issue_number, labels: [name] });
+            } else {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name });
+              } catch {
+                // the label was not on the PR
+              }
             }

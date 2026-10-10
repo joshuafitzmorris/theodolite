@@ -19,8 +19,24 @@ export function proposeToml(cfg: Config, res: ResolveResult, existing: string | 
 	return existing?.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text;
 }
 
-const unmappedLines = (res: ResolveResult) =>
-	res.sites.filter((s) => s.state !== "resolved").map((s) => `# ${s.file}:${s.site.line}  ${s.site.via}`);
+/**
+ * Sites nothing claims, one line per file: a lone site with its line, several with a count and their calls.
+ * `proposed` sites are left out when the caller turns them into resource blocks instead.
+ */
+function unmappedLines(res: ResolveResult, proposed: boolean): string[] {
+	const byFile = new Map<string, { line: number; via: string }[]>();
+	for (const s of res.sites) {
+		if (s.state === "resolved" || (!proposed && s.proposed)) continue;
+		byFile.set(s.file, [...(byFile.get(s.file) ?? []), { line: s.site.line, via: s.site.via }]);
+	}
+	return [...byFile].sort(byName).map(([file, sites]) => {
+		const first = sites[0];
+		if (sites.length === 1 && first) return `# ${file}:${first.line}  ${first.via}`;
+		const vias = [...new Set(sites.map((x) => x.via))];
+		const shown = vias.length > 3 ? `${vias.slice(0, 3).join(", ")}, …` : vias.join(", ");
+		return `# ${file}  ${plural(sites.length, "site")} (${shown})`;
+	});
+}
 
 /** A full matrix for a repository with no config. */
 function fresh(cfg: Config, res: ResolveResult): string {
@@ -34,16 +50,12 @@ function fresh(cfg: Config, res: ResolveResult): string {
 			.map((f) => dbNames.get(f))
 			.find((k) => k !== undefined);
 	for (const r of cfg.resources) if (r.kind === "db") for (const n of [r.name, ...r.tables]) claim(n, r.key);
-	const unmapped: string[] = [];
 	for (const s of res.sites) {
 		let key = s.resources[0];
 		let match: string | null = null;
 		if (key === undefined) {
 			const p = s.proposed;
-			if (!p) {
-				unmapped.push(`# ${s.file}:${s.site.line}  ${s.site.via}`);
-				continue;
-			}
+			if (!p) continue;
 			match = p.match;
 			key = p.key;
 			if (key.startsWith("db.")) {
@@ -59,6 +71,7 @@ function fresh(cfg: Config, res: ResolveResult): string {
 	}
 	const parts = [header(cfg)];
 	for (const [key, g] of [...groups].sort(byName)) parts.push(block(key, g).join("\n"));
+	const unmapped = unmappedLines(res, false);
 	if (unmapped.length > 0) parts.push(["# unmapped", ...unmapped].join("\n"));
 	return `${parts.join("\n\n")}\n`;
 }
@@ -82,7 +95,7 @@ function amend(res: ResolveResult, existing: string): string {
 	}
 	const parts = [mergeGrandfathered(withoutGenerated(existing), add, stale).replace(/\n+$/, "")];
 	if (notes.length > 0) parts.push(["# not grandfathered", ...notes].join("\n"));
-	const unmapped = unmappedLines(res);
+	const unmapped = unmappedLines(res, true);
 	if (unmapped.length > 0) parts.push(["# unmapped", ...unmapped].join("\n"));
 	return `${parts.join("\n\n")}\n`;
 }

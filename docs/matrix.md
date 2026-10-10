@@ -1,8 +1,8 @@
 # The responsibility matrix
 
-`theodolite.toml` declares who may write and construct each resource, hold a connection, and import each layer. `check` fails on undeclared writes; `report` proposes a matrix. Reads are never restricted.
+`theodolite.toml` declares who may write and construct each resource, and which files may open a connection. `check` fails on undeclared writes. `report` proposes a matrix. Reads are never restricted.
 
-## 1. Schema
+## Schema
 
 ```toml
 [scan]
@@ -26,120 +26,101 @@ match = ["sendEmail(", '/resend\.emails\.send\(/']
 writers = ["src/notifications/**"]
 
 [resources."fs.uploads"]
-paths = ["uploads/"]               # path prefixes
+paths = ["uploads/"]
 writers = ["src/storage/**"]
 
 [connections]
 allow = ["src/db/client.ts"]
 
-[imports]
-"src/db/**" = ["src/users/**"]
-
 [grandfathered]
 "src/jobs/reconcile.ts" = ["db.users"]
+
+[doors]
+paths = ["db/**", ".github/**"]
 ```
 
-|Key|Default|Rule|
+| Key | Default | Rule |
 |---|---|---|
-|`scan.include`|`["**"]`|globs|
-|`scan.exclude`|`[]`|added to default excludes|
-|`scan.languages`|`["ts","py"]`|ts: `.ts .tsx .mts .cts .js .jsx .mjs .cjs`; py: `.py`|
-|`scan.unmapped`|`"warn"`|`ignore`, `warn`, `error`; `--strict` makes warnings errors|
-|`writers`|required|globs; `[]` is write-never|
-|`constructors`|unset|globs, also writers; when set, construction elsewhere is a finding|
-|`match`|required unless `db` or `fs`|substring or `/regex/` (flag `i`)|
-|`paths`|required for `fs`|path prefixes; `fs` resources take no `match`|
-|`tables`, `aliases`|`[]`|`db` only; `tables` are normalized names, `aliases` exact identifiers or expression text|
-|`connections.allow`, `.match`|none, `[]`|absent section disables the rule; `match` adds to language defaults|
-|`imports."<glob>"`||importer globs; files matching the key may import each other|
-|`grandfathered."<glob>"`||resource keys; treated as writer, reported as a `TODO(tighten)` note|
+| `scan.include` | `["**"]` | globs |
+| `scan.exclude` | `[]` | added to the default excludes |
+| `scan.languages` | `["ts","py"]` | ts: `.ts .tsx .mts .cts .js .jsx .mjs .cjs`; py: `.py` |
+| `scan.unmapped` | `"warn"` | `ignore`, `warn` or `error`; `--strict` makes warnings errors |
+| `writers` | required | globs; `[]` is write-never |
+| `constructors` | unset | globs, also writers; when set, construction elsewhere is a finding |
+| `match` | required except on `db` and `fs` | substring, or `/regex/` with optional flag `i` |
+| `paths` | required on `fs` | path prefixes; `fs` resources take no `match` |
+| `tables`, `aliases` | `[]` | `db` only; `tables` are normalised names, `aliases` exact identifiers or expression text |
+| `connections.allow`, `.match` | none, `[]` | no section disables the rule; `match` adds to the language defaults |
+| `grandfathered."<glob>"` | | resource keys; the file counts as a writer and is reported as a `TODO(tighten)` note |
+| `doors.paths` | built-in list | globs; replaces the list: `**/migrations/**`, `**/schema.prisma`, `**/drizzle/**`, `**/alembic/**`, `**/*.sql`, `**/auth/**`, `**/auth.ts`, `**/middleware.ts`, `.github/**` |
 
-Resource keys are `<kind>.<name>`, kind one of `db|external|effect|queue|bucket|fs|custom`. Default excludes: `**/{node_modules,dist,build,.venv,__pycache__,migrations,test,tests,__tests__}/**`, `**/*.{test,spec}.*`, `**/{test_*,*_test,conftest}.py`, `**/*.d.ts`. Globs are minimatch, `dot: true`, relative to the config file (found by walking up, or `--config`).
+Resource keys are `<kind>.<name>`, kind one of `db|external|effect|queue|bucket|fs|custom`. Default excludes: `**/{node_modules,dist,build,.venv,__pycache__,migrations}/**`, `**/*.d.ts`, and test files (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, anything under `test`, `tests` or `__tests__`). Globs are minimatch with `dot: true`, relative to the config file.
 
-Normalization: lowercase; strip quotes, brackets, leading `schema.`; camelCase to snake_case; singular equals plural. `UserProfile` resolves to `db.user_profiles`.
+Normalisation: lowercase; strip quotes, brackets and a leading `schema.`; camelCase to snake_case; singular equals plural. `UserProfile` resolves to `db.user_profiles`.
 
-Config errors exit 2, citing smol-toml's position for parse errors, else the key's line under its table header:
+Config errors exit 2. Parse errors cite smol-toml's position; others cite the key's line:
 
 ```
 theodolite.toml:7:1  unknown key "writer" in [resources."db.users"] (did you mean "writers"?)
 ```
 
-Same form for: missing `writers` (`[]` means write-never); bad resource key or kind; missing `match` (or `paths` for `fs`); `tables`/`aliases` outside `db`; a name or alias claimed twice; invalid glob or regex; `!` globs; empty strings; unknown resource in `[grandfathered]`; bad enum.
+Same form for: unknown table; `[imports]` ("is not supported in this version"); unknown language; bad `unmapped`; bad resource key or kind; missing `writers` (`[]` means write-never); missing `match` (or `paths` on `fs`); `match` on `fs`; `paths` outside `fs`; `tables` or `aliases` outside `db`; a name or alias claimed twice; a value that is not an array of strings; empty strings; `!` globs; invalid glob or regex; unknown resource in `[grandfathered]`.
 
-## 2. Write-site detection
+## Detection
 
-A string is SQL in a SQL position (tags `sql`, `Prisma.sql`, `$executeRaw`, `$queryRaw`; first argument of `.query(`/`.execute(`/`.executemany(`/`.raw(`/`text(`) or when it starts with uppercase `INSERT`/`UPDATE`/`DELETE`/`WITH`/`MERGE`/`TRUNCATE`/`ALTER`/`DROP`/`CREATE`. Write shapes, case-insensitive: `INSERT INTO t`, `UPDATE t SET`, `DELETE FROM t`, `TRUNCATE [TABLE] t`, `MERGE INTO t`, `(ALTER|DROP|CREATE) TABLE [IF [NOT] EXISTS] t`.
+| Resource | TypeScript and JavaScript | Python |
+|---|---|---|
+| `db` | SQL in strings; Prisma, Drizzle, knex, Supabase; generic ORM calls | SQL in strings; SQLAlchemy; Django; DB-API `execute` |
+| `external`, `effect` | `fetch`, `axios`, `got`, `ky` mutations; `match`; SDK clients | `requests`, `httpx` mutations; `match` |
+| `fs` | `fs` and `Bun.write` calls, by path prefix | `open` in write mode, `Path`, `shutil`, `os` |
 
-### TypeScript / JavaScript
+**Target `?`.** A variable or interpolation in target position (`` `INSERT INTO ${table}` ``) gives `?` and an `unresolved-target` finding. Resolve it with `aliases` (db), `match` (external, effect) or `paths` (fs), or list the file in `writers`, `constructors` or `[grandfathered]` of a resource of the same kind.
 
-|Family|Matches|Target|Confidence|
-|---|---|---|---|
-|SQL|write shapes in SQL strings and templates|word after keyword|high|
-|Prisma|`<c>.<model>.(create\|createMany\|update\|updateMany\|upsert\|delete\|deleteMany)(`; `<c>` is `prisma`, `tx`, or bound to `new PrismaClient(`|`<model>`|high|
-|Drizzle|`<c>.(insert\|update\|delete)(<t>)`; `<c>` is `db`, `tx`, or bound to `drizzle(`|`<t>`, last segment|medium|
-|knex|`<c>("x")` or `<c>.(table\|into\|from)("x")`, then `.(insert\|update\|upsert\|del\|delete\|truncate)(` in the statement|literal|high|
-|Supabase|`.from("x")`, then `.(insert\|update\|upsert\|delete)(` in the statement|literal|high|
-|TypeORM/Mongoose/Sequelize|`<R>.(create\|bulkCreate\|insertOne\|insertMany\|updateOne\|updateMany\|deleteOne\|deleteMany\|findOneAndUpdate\|destroy)(`; `<r>.(save\|remove)(`; `<x>Repository.(insert\|update\|delete)(`|receiver, `getRepository(M)`, or `<x>`|medium if PascalCase or repository, else low|
-|HTTP|`fetch(u, {method: "POST\|PUT\|PATCH\|DELETE"})`; `(axios\|got\|ky).(post\|put\|patch\|delete)(u`; same on names bound to `axios.create(`/`got.extend(`/`ky.create(`|`u` text, then receiver, against `match`|high for literal, else medium|
-|Filesystem|`(writeFile\|appendFile\|rm\|unlink\|mkdir\|rename\|copyFile\|createWriteStream)[Sync](` on `fs`/`fsp`/`promises` or named imports from `fs`/`node:fs`/`fs/promises`; `Bun.write(`|destination path, against `fs` prefixes|high for literal, else `?`|
-|match|any non-`fs` `match` entry not preceded by `function `|owning resource|high|
+**SDK clients.** `new Stripe(`, `new Resend(`, `new OpenAI(`, `createClient(` from `@supabase/supabase-js`, `new S3Client(`. A client bound in the file, or a variable named after the SDK, makes its method calls external writes, except reads (`get`, `list`, `retrieve` and similar). `report` proposes `match = ["new Stripe("]`, so they are declared on day one. A call on a client whose resource exists without the constructor in `match` gets `Add "new Stripe(" to the match of [resources."external.stripe"]`.
 
-### Python
-
-|Family|Matches|Target|Confidence|
-|---|---|---|---|
-|SQL|as TS; any prefix, triple quotes|word after keyword|high|
-|SQLAlchemy|`<s>.add(M(`, `<s>.(add_all\|delete\|merge)(x)` where `<s>` ends in `session`; `(insert\|update\|delete)(M)`; `<table>.insert()`|`M`, else argument|medium for `M`, else low|
-|Django|`M.objects.(create\|get_or_create\|update_or_create\|bulk_create\|bulk_update)(`; `M.objects…` then `.(update\|delete)(` in the statement; `<x>.(save\|delete)(`|`M`, else receiver|medium for `M`, else low|
-|DB-API|`<cur>.(execute\|executemany)(` with a write SQL literal or a non-literal|from SQL, or `?`|high|
-|HTTP|`(requests\|httpx).(post\|put\|patch\|delete)(`, `.request("POST"`; same on names bound to `requests.Session()`/`httpx.Client(`/`httpx.AsyncClient(`|as TS|as TS|
-|Filesystem|`open(p, m)`, literal `m` containing `w\|a\|x\|+`; `Path(…).(write_text\|write_bytes\|unlink\|mkdir\|rename\|touch)(`; `shutil.(copy\|copyfile\|copytree\|move\|rmtree)(`; `os.(remove\|unlink\|rmdir\|makedirs\|rename\|replace)(`|destination path|high for literal, else `?`|
-|match|as TS, not preceded by `def `|owning resource|high|
-
-**Target `?`.** A variable, interpolation or concatenation in target position (`` `INSERT INTO ${table}` ``, `f"DELETE FROM {t}"`, `"INSERT INTO " + t`) gives `?` plus the expression text. Fix: add that text to `aliases` (db) or `match`, or list the file in a resource's `writers`, `constructors` or `[grandfathered]`, by exact path or glob; the site then counts for that resource. The resource must be of the site's kind (an `fs` write needs an `fs` resource, a SQL or ORM write with a dynamic table a `db` one, an HTTP mutation with a variable URL an `external` one); when several qualify, the first in config order takes it. A `match` entry ending in `(` also resolves `?` sites of that call in the resource's writers. Otherwise: `unresolved-target`, a warning, or an error under `--strict` or `unmapped = "error"`.
-
-## 3. Matching algorithm
-
-1. Validate config. Walk `include` minus excludes, honouring nested `.gitignore`; skip symlinks, files over 1 MB, binaries.
-2. Tokenize in one pass into `code` (comments and string bodies blanked, offsets kept) and `strings[]` (span, value, interpolations, tag or calling function). TS: `//`, `/* */`, quotes, nested `${}`, regex literals (after an operator, `(`, `,` or `return`); JSX text is not a string. Python: `#`, string prefixes, triple quotes; docstrings are comments.
-3. Record client bindings and imports.
-4. Run detectors over `code`, reading literals from `strings[]`; SQL runs over `strings[]`; `match` over source with comments blanked.
-5. Resolve: `db` by normalized name or `tables`, then exact `aliases`; other kinds by `match` against target text, then receiver; `fs` by prefix. Low confidence resolves through `aliases` only. Builtins (`Object`, `Map`, `Set`, `Promise`, `dict`) are never targets. Duplicates on one line collapse.
-6. File in `writers` or `constructors`: fine. In `[grandfathered]` for it: note. `writers = []`: `write-never`. Else `undeclared-write`.
-7. Construction sites (`create`, `createMany`, `bulk_create`, `objects.create`, `session.add(M(`, `new M(` with `M` in `aliases`) outside a set `constructors`: `undeclared-constructor`, even inside `writers`.
-8. Extracted target, no resource: low-confidence and receiver-based ORM sites are dropped; others are `unmapped-write` at `scan.unmapped` severity.
-9. Connections: a hit outside `allow` is `undeclared-connection`. Defaults require importing their package. TS: `new (PrismaClient|Pool|Client|MongoClient|Sequelize|DataSource)(`, `(drizzle|knex|createClient|createPool|mongoose.connect)(`. Python: `(create_engine|sessionmaker|psycopg.connect|psycopg2.connect|asyncpg.create_pool|sqlite3.connect|MongoClient)(`.
-10. Imports: resolve relative specifiers and Python modules from `.` and `src`; skip packages. Importing a key's path from a file matching neither the key nor its globs: `import-violation`.
-11. Grandfathered pairs with no site: `stale-grandfathered` warning.
-
-## 4. Output
+## Output
 
 ```
-src/api/routes/users.ts:42  writes db.users (prisma.user.create)  not declared. Add under [resources."db.users"]: writers = [..., "src/api/routes/**"]
-src/jobs/purge.ts:9  writes db.legacy_accounts (DELETE FROM legacy_accounts)  write-never.
-src/jobs/export.ts:17  writes ? (INSERT INTO ${table})  unresolved. Add "table" to [resources."db.users"].aliases, or add a db resource listing this file.
-src/sync/push.py:12  writes db.audit_events (INSERT INTO audit_events)  unmapped (warning). Add [resources."db.audit_events"] writers = ["src/sync/**"]
-src/routes/admin.ts:3  opens a connection (new PrismaClient)  not allowed. Add under [connections]: allow = [..., "src/routes/**"]
-src/jobs/reconcile.ts:88  writes db.users (UPDATE users SET)  grandfathered, TODO(tighten)
-theodolite: 812 files, 143 write sites, 4 errors, 1 warning, 1 grandfathered
+src/api/routes/users.ts:42  writes db.users (prisma.user.delete)  db.users is written by src/users/**; call it from there, or say in the PR why this file must write it.
+src/users/service.ts:6  creates db.users (prisma.user.create)  db.users is created by src/users/repository.ts; call it from there, or say in the PR why this file must create it.
+src/jobs/purge.ts:4  writes db.legacy_accounts (DELETE FROM legacy_accounts)  write-never: nothing may write db.legacy_accounts. Say in the PR why that must change.
+src/jobs/export.ts:4  writes ? (INSERT INTO ${table})  unresolved (warning). Add "table" to the aliases of a db resource, or add a db resource that lists this file.
+src/sync/push.py:2  writes db.audit_events (INSERT INTO audit_events)  unmapped (warning). Add [resources."db.audit_events"] writers = ["src/sync/push.py"]
+src/routes/admin.ts:5  opens a connection (new PrismaClient)  not allowed. Add under [connections]: allow = [..., "src/routes/admin.ts"]
+src/jobs/reconcile.ts:4  writes db.users (UPDATE users SET)  grandfathered, TODO(tighten)
+theodolite: 11 files, 9 write sites, 4 errors, 2 warnings, 1 grandfathered
 ```
 
-Sorted by file and line; suggested globs are the file's directory plus `/**`.
+Sorted by file and line. `check --base <ref>` scans the files changed since the merge base, counts only new write sites, and adds a verdict:
 
-`--json`:
+```
+theodolite: 2 changed files, 1 new write site, 1 error, 0 warnings, 0 grandfathered
+doors: new writer src/api/c.ts -> db.users
+```
+
+`doors: none` when there are none; otherwise entries are joined by `; `. Door kinds: `new writer <file> -> <resource>`, `new external call <file> -> <resource>`, `migration or schema file <path>`, `auth path <path>`, `CI path <path>`, `door path <path>` (when `[doors]` is set), `dependency added <names>`, `dependency file changed <path>`, `skip or only added <file> (<line>)`, `assertion deleted <file> (<n>)`.
+
+If `[grandfathered]` has more pairs than the committed `theodolite.toml` (the merge base under `--base`), `check` adds a warning, an error under `--strict`:
+
+```
+theodolite.toml:9  [grandfathered] grew from 1 to 2 pairs since HEAD. Shrink it, or say in the PR why.
+```
+
+`--json` prints one object. `doors` is present only with `--base`. `message` is not included.
 
 ```json
-{"version":1,"summary":{"files":812,"sites":143,"errors":4,"warnings":1,"notes":1},
+{"version":1,"summary":{"files":11,"sites":9,"errors":4,"warnings":2,"notes":1},
+ "doors":["new writer src/api/c.ts -> db.users"],
  "findings":[{"rule":"undeclared-write","severity":"error","file":"src/api/routes/users.ts",
-  "line":42,"col":7,"resource":"db.users","target":"user","via":"prisma.user.create",
-  "family":"prisma","confidence":"high","fix":{"key":"writers","add":"src/api/routes/**"}}]}
+  "line":42,"col":7,"resource":"db.users","target":"user","via":"prisma.user.delete",
+  "family":"prisma","confidence":"high","fix":{"key":"writers","add":"src/api/routes/users.ts"}}]}
 ```
 
-`rule` is one of `undeclared-write`, `write-never`, `unresolved-target`, `unmapped-write`, `undeclared-constructor`, `undeclared-connection`, `import-violation`, `grandfathered`, `stale-grandfathered`; `severity` is `error`, `warning` or `note`; `resource` is `null` for `?` and unmapped.
+`rule` is one of `undeclared-write`, `write-never`, `unresolved-target`, `unmapped-write`, `undeclared-constructor`, `undeclared-connection`, `grandfathered`, `stale-grandfathered`, `grandfathered-grew`. `severity` is `error`, `warning` or `note`. `resource` is `null` for `?` and unmapped sites.
 
-Exit codes: 0 clean or warnings only; 1 errors; 2 usage or config error.
+Exit codes: 0 clean or warnings only; 1 errors; 2 usage or config error. With no files matched, `check` warns and exits 0, or 1 under `--strict`.
 
-`report` prints a full proposed `theodolite.toml`, reusing an existing config's `[scan]`, names and aliases, else naming resources `db.<table>`, `external.<host>`, `fs.<first segment>`. Every writing file is listed by exact path; low-confidence sites are omitted.
+`report` prints and writes nothing. With no config it prints a full matrix. Every writing file is listed by exact path; unresolved sites go in an `# unmapped` block, one line per file (a lone site with its line, several with a count and their calls).
 
 ```toml
 [resources."db.users"]
@@ -152,53 +133,13 @@ writers = [
 # src/jobs/export.ts:17  INSERT INTO ${table}
 ```
 
-## 5. False positives and fixtures
+With a config it prints the file as it is, with each undeclared write added to `[grandfathered]` (one `"file" = ["resource"]` line, merged into existing entries) and stale pairs dropped. Write-never sites are not grandfathered; they are listed in a `# not grandfathered` block, followed by `# unmapped`.
 
-A missed write is acceptable in v1; a finding on a common non-write is a bug.
+```toml
+[grandfathered]
+"src/jobs/reconcile.ts" = ["db.users"]
+"src/api/routes/users.ts" = ["db.users"]
 
-Fixtures: `test/fixtures/{ts,py}/NN-slug.*` sharing one `theodolite.toml`. A line that must yield a site ends with `// expect: <resource|?|unmapped> <confidence>` (`#` in Python); any other site, or an unmet expectation, fails. 
-Per language: at least 25 positives (one per method or keyword in the tables) plus these traps, which yield nothing unless stated:
-
-1. `SELECT … WHERE updated_at > $1`; `SELECT … FOR UPDATE`.
-2. `INSERT … ON CONFLICT DO UPDATE SET`: one site.
-3. `prisma.user.findMany`, `db.select().from(users)`, `.from("users").select`, `User.objects.filter`, `session.query(User)`.
-4. SQL in line comments, block comments, docstrings.
-5. `logger.info("INSERT failed")`, `console.log("Update user settings")`, `new Error("delete from cart failed")`.
-6. `users.test.ts`, `tests/test_users.py`: not scanned.
-7. Migration with `CREATE TABLE`: not scanned.
-8. `` sql`UPDATE users SET name = ${n}` ``: `db.users`. `` `INSERT INTO ${table}` ``, `f"DELETE FROM {t}"`: `?`.
-9. With `db.sessions`, `request.session.save()` and express-session `session.save()`; with `db.events` constructors, `new Event("change")`.
-10. `map.delete(k)`, `params.delete("q")`, `Object.create(p)`, `settings.update({})`.
-11. `"http://x"`; a regex literal containing quotes; `#` inside a Python string.
-12. `fetch(url)`, `axios.get`, `requests.get`, `fs.readFile`, `open(p, "rb")`.
-13. `function sendEmail(`, `def send_email(` with matching `match` entries.
-14. JSX text with an apostrophe (`<p>Don't save</p>`) opens no string; a later write is still found.
-
-## 6. Performance and plugin point
-
-One pass per file (read, tokenize, detect, discard), keeping only sites. An anchor-word prefilter built from each preset skips files that cannot match. Target: 50,000 files under 10 s on a laptop. No AST, no network.
-
-`src/scan/presets/ts.ts` and `py.ts` each export the pattern table:
-
-```ts
-export interface Preset {
-  language: "ts" | "py";
-  extensions: string[];
-  tokenize(source: string): Tokens;
-  parseImports(t: Tokens): ImportRef[];
-  connectionDefaults: { pattern: string; module: string }[];
-  detectors: { family: string; confidence: Confidence; construction: boolean;
-    dropIfUnresolved: boolean; find(t: Tokens, ctx: FileContext): Site[] }[];
-}
+# not grandfathered
+# src/jobs/purge.ts:4  writes db.legacy_accounts (DELETE FROM legacy_accounts)  write-never
 ```
-
-The matcher reads only `Site[]`, so an AST-based preset can replace a module without changing it.
-
-## 7. Not in this version
-
-- `[imports]`: import-direction rules are not part of v1.
-- Cross-file dataflow: needs a module graph and types; too slow. Aliases and exact paths cover it.
-- Dynamic table names: unknowable statically; `?` forces a declaration.
-- AST: detection is token-based; an AST preset is a future plug-in (section 6).
-- ORM relations: a nested `create` inside `prisma.user.create` counts for `user` only; fixing it needs the schema.
-- Runtime instrumentation: needs the app running and sees only exercised paths.

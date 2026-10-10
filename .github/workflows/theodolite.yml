@@ -10,10 +10,10 @@ jobs:
   theodolite:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@ # v7.0.1 3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@ # v7.1.0 949feb2413d6458794dcd2491c4babbbce0c15c1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
       # Warn mode: findings are posted but do not fail the job. Remove `|| true` to enforce.
@@ -22,7 +22,7 @@ jobs:
       - name: comment
         if: ${{ !github.event.pull_request.head.repo.fork }}
         continue-on-error: true
-        uses: actions/github-script@ # v9.0.0 3a2844b7e9c422d3c10d287c895573f7108da1b3
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');

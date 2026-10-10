@@ -1,0 +1,25 @@
+[scan]
+include = ["src/**"]                      # monorepo: ["packages/**/src/**"]
+exclude = ["**/tests/**", "**/migrations/**"]
+languages = ["ts", "py"]                 # presets of write shapes per language
+
+[resources."db.users"]                   # a table
+writers = ["src/repositories/**"]
+constructors = ["src/repositories/user-repository.ts"]   # one path creates it
+
+[resources."external.stripe"]            # an external API
+match = ["api.stripe.com", "new Stripe("]
+writers = ["src/billing/**"]
+
+[resources."effect.email"]               # a side effect
+match = ["sendEmail(", "resend.emails.send("]
+writers = ["src/notifications/**"]
+
+[resources."db.legacy_orders"]
+writers = []                             # write-never: the strongest rule
+
+[connections]                            # who may hold a client or connection at all
+allow = ["src/db/**"]
+
+[grandfathered]                          # TODO(tighten): shrink these, never cite them as precedent
+"src/services/reconcile.ts" = ["db.users"]

@@ -1,0 +1,53 @@
+{
+	"name": "theodolite",
+	"version": "0.1.0",
+	"description": "A map of who writes what in your codebase, enforced in CI, plus the rules agents need to move fast inside it.",
+	"license": "MIT",
+	"author": "Joshua Fitz-Morris",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/joshuafitzmorris/theodolite.git"
+	},
+	"homepage": "https://github.com/joshuafitzmorris/theodolite#readme",
+	"keywords": [
+		"ci",
+		"codeowners",
+		"architecture",
+		"agents",
+		"claude-code",
+		"writes",
+		"boundaries"
+	],
+	"type": "module",
+	"bin": {
+		"theodolite": "dist/cli.js"
+	},
+	"files": [
+		"dist",
+		"templates",
+		"README.md",
+		"LICENSE"
+	],
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.build.json",
+		"test": "vitest --run",
+		"typecheck": "tsc -p tsconfig.json --noEmit",
+		"lint": "biome check .",
+		"format": "biome check --write .",
+		"check": "npm run typecheck && npm run lint && npm test",
+		"prepublishOnly": "npm run check && npm run build"
+	},
+	"dependencies": {
+		"minimatch": "10.2.6",
+		"smol-toml": "1.9.1"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"@types/node": "26.6.5",
+		"typescript": "5.9.3",
+		"vitest": "5.0.3"
+	}
+}

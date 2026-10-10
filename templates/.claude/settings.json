@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(AGENTS.md)",
+      "Edit(CLAUDE.md)",
+      "Edit(.claude/**)",
+      "Edit(.env*)",
+      "Read(.env*)",
+      "Edit(theodolite.toml)"
+    ],
+    "ask": [
+      "Edit(**/migrations/**)",
+      "Edit(package.json)",
+      "Edit(**/auth/**)",
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(npm publish *)",
+      "Bash(npm run deploy *)",
+      "Bash(npm run migrate *)",
+      "Bash(npx prisma migrate *)",
+      "Bash(npx drizzle-kit push *)",
+      "Bash(alembic upgrade *)",
+      "Bash(vercel deploy *)",
+      "Bash(fly deploy *)",
+      "Bash(kubectl apply *)",
+      "Bash(terraform apply *)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "cd \"$CLAUDE_PROJECT_DIR\" && npx theodolite@0.1.0 status", "timeout": 20 }] }
+    ],
+    "SubagentStop": [
+      { "hooks": [{ "type": "command", "command": "cd \"$CLAUDE_PROJECT_DIR\" && npx theodolite@0.1.0 status", "timeout": 20 }] }
+    ]
+  }
+}

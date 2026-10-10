@@ -1,0 +1,44 @@
+[scan]
+include = ["src/**"]
+languages = ["ts"]
+
+[resources."db.users"]
+writers = ["src/never/**"]
+aliases = ["usersTable", "userStore"]
+
+[resources."db.orders"]
+writers = []
+tables = ["purchase_orders"]
+
+[resources."db.groups"]
+writers = []
+
+[resources."db.sessions"]
+writers = []
+
+[resources."db.events"]
+writers = ["src/events/**"]
+constructors = ["src/events/**"]
+aliases = ["EventRecord"]
+
+[resources."db.audit_logs"]
+writers = []
+
+[resources."db.legacy_accounts"]
+writers = []
+
+[resources."external.stripe"]
+match = ["api.stripe.com", "new Stripe("]
+writers = []
+
+[resources."effect.email"]
+match = ["sendEmail(", '/resend\.emails\.send\(/']
+writers = []
+
+[resources."fs.uploads"]
+paths = ["uploads/"]
+writers = []
+
+[resources."bucket.assets"]
+match = ["s3.putObject("]
+writers = []

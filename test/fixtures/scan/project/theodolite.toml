@@ -1,0 +1,21 @@
+[scan]
+include = ["src/**"]
+languages = ["ts", "py"]
+
+[resources."db.users"]
+writers = ["src/users/**"]
+constructors = ["src/users/repository.js"]
+aliases = ["User"]
+
+[resources."db.legacy_accounts"]
+writers = []
+
+[resources."external.stripe"]
+match = ["api.stripe.com"]
+writers = ["src/billing/**"]
+
+[connections]
+allow = ["src/db/client.js"]
+
+[grandfathered]
+"src/jobs/reconcile.js" = ["db.users"]

@@ -1,0 +1,12 @@
+# theodolite's own matrix. The only thing this package writes is files into the user's repository,
+# and only three modules may do that. Scanning is read-only by construction.
+
+[scan]
+include = ["src/**"]
+exclude = ["test/**", "templates/**", "dist/**"]
+languages = ["ts"]
+unmapped = "error"
+
+[resources."fs.user-repo"]
+paths = ["writeFileSync(", "mkdirSync(", "appendFileSync(", "renameSync(", "chmodSync("]
+writers = ["src/init/**", "src/status/**", "src/shared/fs.ts"]

@@ -1,0 +1,8 @@
+{
+	"hook_event_name": "SubagentStop",
+	"agent_type": "implement",
+	"session_id": "abc123",
+	"transcript_path": "TRANSCRIPT",
+	"cwd": "/work/app",
+	"last_assistant_message": "I added the column.\nShould I run the migration now?"
+}

@@ -14,6 +14,7 @@ export type Args = {
 	config: string | undefined;
 	json: boolean;
 	strict: boolean;
+	base: string | undefined;
 	help: boolean;
 };
 
@@ -26,6 +27,7 @@ export function parseArgv(argv: string[]): Args | string {
 			config: text,
 			json: flag,
 			strict: flag,
+			base: text,
 			help: { ...flag, short: "h" },
 		} as const;
 		const { values: v } = parseArgs({ args: argv, allowPositionals: false, options });
@@ -35,6 +37,7 @@ export function parseArgv(argv: string[]): Args | string {
 			config,
 			json: !!v.json,
 			strict: !!v.strict,
+			base: v.base,
 			help: !!v.help,
 		};
 	} catch (err) {

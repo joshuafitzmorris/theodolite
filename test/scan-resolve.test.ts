@@ -100,11 +100,14 @@ describe("resolve: aliases", () => {
 });
 
 describe("resolve: writers, grandfathered and write-never", () => {
-	// guards: a file inside writers being flagged, or one outside not being flagged with the right fix
-	it("passes a writer and flags a non-writer with the directory glob", () => {
+	// guards: a file inside writers being flagged, or one outside not being flagged with the owner and the exact file
+	it("passes a writer and flags a non-writer, naming the owner and the exact file", () => {
 		const { rows, result } = scan(USERS, { "src/users/a.js": WRITE, "src/api/routes/b.js": WRITE });
 		expect(rows).toEqual(["undeclared-write src/api/routes/b.js:1 db.users error"]);
-		expect(result.findings[0]?.fix).toEqual({ key: "writers", add: "src/api/routes/**" });
+		expect(result.findings[0]?.fix).toEqual({ key: "writers", add: "src/api/routes/b.js" });
+		expect(result.findings[0]?.message).toBe(
+			"writes db.users (prisma.user.update)  db.users is written by src/users/**; call it from there, or say in the PR why this file must write it.",
+		);
 	});
 
 	// guards: grandfathered files failing the build instead of producing a TODO(tighten) note
@@ -189,7 +192,7 @@ describe("resolve: connections", () => {
 		const toml = `${USERS}\n[connections]\nallow = ["src/db/client.js"]\n`;
 		const { rows, result } = scan(toml, { "src/db/client.js": client, "src/routes/admin.js": client });
 		expect(rows).toEqual(["undeclared-connection src/routes/admin.js:2 - error"]);
-		expect(result.findings[0]?.fix).toEqual({ key: "allow", add: "src/routes/**" });
+		expect(result.findings[0]?.fix).toEqual({ key: "allow", add: "src/routes/admin.js" });
 	});
 
 	// guards: a class named Client from an unrelated package counting as a database connection
@@ -244,7 +247,7 @@ describe("resolve: unmapped targets follow scan.unmapped", () => {
 	// guards: the proposed resource name and fix for an unmapped site
 	it("proposes a db resource for an unmapped table", () => {
 		const { result } = scan(base("warn"), files);
-		expect(result.findings[0]?.message).toContain('Add [resources."db.audit_events"] writers = ["src/**"]');
+		expect(result.findings[0]?.message).toContain('Add [resources."db.audit_events"] writers = ["src/a.js"]');
 		expect(result.findings[1]?.message).toContain(
 			'Add "t" to the aliases of a db resource, or add a db resource that lists this file.',
 		);

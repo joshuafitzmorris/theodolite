@@ -1,144 +1,29 @@
-// The text `theodolite report` prints. With a config on disk, every line of it is carried through and only
-// newly discovered writers are appended; with none, a full matrix is written from what the code does.
+// The text `theodolite report` prints. With no config, a full matrix from what the code does, every writing
+// file by exact path. With a config, the file as it is plus a [grandfathered] entry for each undeclared
+// write: the matrix only ever grows there, where `check` counts it and flags stale pairs. A resource with
+// writers = [] is never touched, and nothing else in the file is edited.
 
-import type { Config, Resource } from "./matrix.ts";
-import { forms, globRe, inGlobs } from "./matrix.ts";
+import type { Config } from "./matrix.ts";
+import { forms } from "./matrix.ts";
 import type { ResolveResult } from "./resolve.ts";
 
-type Entry = { path: string; sites: number };
-type Group = {
-	writers: Map<string, number>;
-	constructors: Map<string, number>;
-	match: Set<string>;
-	/** True when the resource is not in the config. */
-	added: boolean;
-};
+type Group = { writers: Map<string, number>; match: Set<string> };
 
 const q = JSON.stringify;
 const arr = (xs: string[]) => `[${xs.map((x) => q(x)).join(", ")}]`;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const sorted = (m: Map<string, number>): Entry[] =>
-	[...m].sort(([a], [b]) => (a < b ? -1 : 1)).map(([path, sites]) => ({ path, sites }));
-
-const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/** Index of the `]` that closes the array opened at `open`, and the last significant character before it. */
-function arrayEnd(text: string, open: number): { close: number; last: number } | null {
-	let depth = 0;
-	let last = open;
-	for (let i = open; i < text.length; i++) {
-		const c = text[i];
-		if (c === "#") {
-			const nl = text.indexOf("\n", i);
-			if (nl < 0) return null;
-			i = nl;
-		} else if (c === '"' || c === "'") {
-			let j = i + 1;
-			while (j < text.length && text[j] !== c && text[j] !== "\n") j += c === '"' && text[j] === "\\" ? 2 : 1;
-			i = j;
-			last = j;
-		} else if (c === "[") {
-			depth++;
-			last = i;
-		} else if (c === "]") {
-			if (--depth === 0) return { close: i, last };
-			last = i;
-		} else if (c !== undefined && c.trim() !== "") last = i;
-	}
-	return null;
-}
-
-/** Top-level elements of a one-line array body, as written. */
-function elementsOf(body: string): string[] {
-	const out: string[] = [];
-	let depth = 0;
-	let from = 0;
-	for (let i = 0; i < body.length; i++) {
-		const c = body[i];
-		if (c === '"' || c === "'") {
-			const end = body.indexOf(c, i + 1);
-			i = end < 0 ? body.length : end;
-		} else if (c === "[" || c === "{") depth++;
-		else if (c === "]" || c === "}") depth--;
-		else if (c === "," && depth === 0) {
-			out.push(body.slice(from, i).trim());
-			from = i + 1;
-		}
-	}
-	out.push(body.slice(from).trim());
-	return out.filter((x) => x !== "");
-}
-
-/**
- * Append entries to `key = [...]` inside the table whose header matches `header`, leaving every other
- * byte alone. A one-line array becomes a multi-line one with its entries as written. Returns null when
- * the table or the key cannot be found.
- */
-export function appendToArray(text: string, header: RegExp, key: string, entries: Entry[]): string | null {
-	if (entries.length === 0) return text;
-	const eol = text.includes("\r\n") ? "\r\n" : "\n";
-	const lines = text.split("\n");
-	const starts: number[] = [];
-	let offset = 0;
-	for (const line of lines) {
-		starts.push(offset);
-		offset += line.length + 1;
-	}
-	const h = lines.findIndex((l) => header.test(l.replace(/\r$/, "")));
-	if (h < 0) return null;
-	let end = lines.findIndex((l, i) => i > h && /^[ \t]*\[/.test(l));
-	if (end < 0) end = lines.length;
-	const keyRe = new RegExp(`^[ \\t]*(?:${escapeRe(key)}|"${escapeRe(key)}"|'${escapeRe(key)}')[ \\t]*=`);
-	const k = lines.findIndex((l, i) => i > h && i < end && keyRe.test(l));
-	if (k < 0) return null;
-	const open = text.indexOf("[", (starts[k] ?? 0) + (lines[k]?.indexOf("=") ?? 0));
-	const span = arrayEnd(text, open);
-	if (open < 0 || !span) return null;
-
-	const width = Math.max(...entries.map((e) => q(e.path).length)) + 1;
-	const note = (e: Entry) =>
-		`${`${q(e.path)},`.padEnd(width + 1)} # TODO(tighten) ${plural(e.sites, "site")}`;
-	const lineStart = text.lastIndexOf("\n", open) + 1;
-	const closeLine = text.lastIndexOf("\n", span.close) + 1;
-	const oneLine = closeLine <= lineStart;
-	if (oneLine) {
-		const eolAt = text.indexOf("\n", span.close);
-		const lineEnd = eolAt < 0 ? text.length : eolAt;
-		const kept = elementsOf(text.slice(open + 1, span.close)).map((x) => `  ${x},`);
-		const body = [...kept, ...entries.map((e) => `  ${note(e)}`)].join(eol);
-		return `${text.slice(0, open + 1)}${eol}${body}${eol}]${text.slice(span.close + 1, lineEnd)}${text.slice(lineEnd)}`;
-	}
-	const inside = text.slice(open, closeLine);
-	const indent = /\n([ \t]+)["']/.exec(inside)?.[1] ?? "  ";
-	const comma = text[span.last] === "," || span.last === open ? "" : ",";
-	const added = entries.map((e) => `${indent}${note(e)}`).join(eol);
-	const alone = text.slice(closeLine, span.close).trim() === "";
-	const head = text.slice(0, span.last + 1);
-	const between = text.slice(span.last + 1, alone ? closeLine : span.close);
-	const tail = alone ? text.slice(closeLine) : text.slice(span.close);
-	return `${head}${comma}${between}${alone ? "" : eol}${added}${eol}${tail}`;
-}
-
-const tableHeader = (path: string) => new RegExp(`^[ \\t]*\\[[ \\t]*${path}[ \\t]*\\][ \\t]*(?:#.*)?$`);
-const resourceHeader = (key: string) =>
-	tableHeader(`resources[ \\t]*\\.[ \\t]*(?:"${escapeRe(key)}"|'${escapeRe(key)}')`);
-
-/** Where a site's file must be listed for `check` to accept it; null when it already is. */
-function missingList(
-	cfg: Config,
-	r: Resource,
-	file: string,
-	construct: boolean,
-): "writers" | "constructors" | null {
-	const inCons = r.constructors !== null && inGlobs(file, r.constructors);
-	const constructing = r.constructors !== null && construct;
-	if (constructing ? inCons : inGlobs(file, r.writers) || inCons) return null;
-	if (cfg.grandfathered.some((g) => g.resources.includes(r.key) && globRe(g.glob)?.test(file))) return null;
-	return constructing ? "constructors" : "writers";
-}
+const byName = ([a]: [string, unknown], [b]: [string, unknown]) => (a < b ? -1 : 1);
 
 export function proposeToml(cfg: Config, res: ResolveResult, existing: string | null): string {
-	const byKey = new Map(cfg.resources.map((r) => [r.key, r]));
+	const text = existing?.trim() ? amend(res, existing.replace(/\r\n/g, "\n")) : fresh(cfg, res);
+	return existing?.includes("\r\n") ? text.replace(/\n/g, "\r\n") : text;
+}
+
+const unmappedLines = (res: ResolveResult) =>
+	res.sites.filter((s) => s.state !== "resolved").map((s) => `# ${s.file}:${s.site.line}  ${s.site.via}`);
+
+/** A full matrix for a repository with no config. */
+function fresh(cfg: Config, res: ResolveResult): string {
 	const groups = new Map<string, Group>();
 	const dbNames = new Map<string, string>();
 	const claim = (name: string, key: string) => {
@@ -167,66 +52,107 @@ export function proposeToml(cfg: Config, res: ResolveResult, existing: string | 
 				else claim(key, key);
 			}
 		}
-		const g = groups.get(key) ?? {
-			writers: new Map(),
-			constructors: new Map(),
-			match: new Set(),
-			added: !byKey.has(key),
-		};
+		const g = groups.get(key) ?? { writers: new Map(), match: new Set() };
 		groups.set(key, g);
-		const r = byKey.get(key);
-		const construct = s.site.construction || s.site.kind === "new";
-		const isNew = s.site.kind === "new";
-		const list = !r
-			? isNew
-				? null
-				: "writers"
-			: isNew && r.constructors === null
-				? null
-				: missingList(cfg, r, s.file, construct);
-		if (list) g[list].set(s.file, (g[list].get(s.file) ?? 0) + 1);
+		if (s.site.kind !== "new") g.writers.set(s.file, (g.writers.get(s.file) ?? 0) + 1);
 		if (match) g.match.add(match);
 	}
-
-	let text = existing?.trim() ? withoutGenerated(existing) : header(cfg);
-	const pending: string[] = [];
-	const patch = (headerRe: RegExp, key: string, entries: Entry[], label: string) => {
-		const next = appendToArray(text, headerRe, key, entries);
-		if (next === null) pending.push(`# add to ${label}: ${arr(entries.map((e) => e.path))}`);
-		else text = next;
-	};
-	for (const [key, g] of [...groups].sort(([a], [b]) => (a < b ? -1 : 1))) {
-		if (g.added) continue;
-		patch(resourceHeader(key), "writers", sorted(g.writers), `[resources.${q(key)}] writers`);
-		patch(resourceHeader(key), "constructors", sorted(g.constructors), `[resources.${q(key)}] constructors`);
-	}
-	if (cfg.connections) {
-		const allow = cfg.connections.allow;
-		const files = [...new Set(res.connections.map((c) => c.file))].filter((f) => !inGlobs(f, allow)).sort();
-		patch(
-			tableHeader("connections"),
-			"allow",
-			files.map((path) => ({ path, sites: 1 })),
-			"[connections] allow",
-		);
-	}
-
-	const parts = [text.replace(/\n+$/, "")];
-	for (const [key, g] of [...groups].sort(([a], [b]) => (a < b ? -1 : 1))) {
-		if (g.added) parts.push(block(key, g).join("\n"));
-	}
-	if (pending.length > 0) parts.push(["# not applied", ...pending].join("\n"));
+	const parts = [header(cfg)];
+	for (const [key, g] of [...groups].sort(byName)) parts.push(block(key, g).join("\n"));
 	if (unmapped.length > 0) parts.push(["# unmapped", ...unmapped].join("\n"));
-	const result = `${parts.join("\n\n")}\n`;
-	return existing?.includes("\r\n") ? result.replace(/\r?\n/g, "\r\n") : result;
+	return `${parts.join("\n\n")}\n`;
 }
 
-/** Drops the trailing `# unmapped` or `# not applied` comment block an earlier report appended. */
+/** The existing config with undeclared writes added to [grandfathered] and stale pairs removed. */
+function amend(res: ResolveResult, existing: string): string {
+	const add = new Map<string, Set<string>>();
+	const stale = new Map<string, Set<string>>();
+	const notes: string[] = [];
+	const into = (m: Map<string, Set<string>>, key: string, value: string) => {
+		const set = m.get(key) ?? new Set<string>();
+		set.add(value);
+		m.set(key, set);
+	};
+	for (const f of res.findings) {
+		if (!f.resource) continue;
+		if (f.rule === "undeclared-write" || f.rule === "undeclared-constructor") into(add, f.file, f.resource);
+		else if (f.rule === "stale-grandfathered") into(stale, f.target, f.resource);
+		else if (f.rule === "write-never")
+			notes.push(`# ${f.file}:${f.line}  writes ${f.resource} (${f.via})  write-never`);
+	}
+	const parts = [mergeGrandfathered(withoutGenerated(existing), add, stale).replace(/\n+$/, "")];
+	if (notes.length > 0) parts.push(["# not grandfathered", ...notes].join("\n"));
+	const unmapped = unmappedLines(res);
+	if (unmapped.length > 0) parts.push(["# unmapped", ...unmapped].join("\n"));
+	return `${parts.join("\n\n")}\n`;
+}
+
+const HEADER = /^\s*\[/;
+const GRANDFATHERED = /^\s*\[grandfathered\]\s*(?:#.*)?$/;
+const ENTRY = /^(\s*)("(?:[^"\\]|\\.)*"|'[^']*'|[^\s=#'"]+)\s*=\s*\[([^\]]*)\]\s*(#.*)?$/;
+
+const unquote = (x: string): string =>
+	x.startsWith('"') ? String(JSON.parse(x)) : x.startsWith("'") ? x.slice(1, -1) : x;
+
+/**
+ * Add `file = [resources]` lines to the [grandfathered] table and drop stale pairs. An entry that exists is
+ * rewritten on its own line, with its comment kept; every other byte of the file stays as it was.
+ */
+export function mergeGrandfathered(
+	text: string,
+	add: Map<string, Set<string>>,
+	stale: Map<string, Set<string>>,
+): string {
+	const lines = text.split("\n");
+	const h = lines.findIndex((l) => GRANDFATHERED.test(l));
+	const pending = new Map(add);
+	const entryLine = (indent: string, key: string, items: string[], comment: string | undefined) =>
+		`${indent}${q(key)} = ${arr(items)}${comment ? `  ${comment}` : ""}`;
+	if (h >= 0) {
+		let end = lines.findIndex((l, i) => i > h && HEADER.test(l));
+		if (end < 0) end = lines.length;
+		let last = h;
+		const dropped = new Set<number>();
+		for (let i = h + 1; i < end; i++) {
+			const line = lines[i] ?? "";
+			if (line.trim() !== "" && !line.trim().startsWith("#")) last = i;
+			const m = ENTRY.exec(line);
+			if (!m) continue;
+			const key = unquote(m[2] ?? "");
+			const items = (m[3] ?? "")
+				.split(",")
+				.map((x) => x.trim())
+				.filter((x) => x !== "")
+				.map(unquote);
+			const kept = new Set(items.filter((r) => !stale.get(key)?.has(r)));
+			for (const r of pending.get(key) ?? []) kept.add(r);
+			pending.delete(key);
+			if (kept.size === items.length && items.every((r) => kept.has(r))) continue;
+			if (kept.size === 0) dropped.add(i);
+			else lines[i] = entryLine(m[1] ?? "", key, [...kept].sort(), m[4]);
+		}
+		const fresh = [...pending]
+			.sort(byName)
+			.map(([file, set]) => entryLine("", file, [...set].sort(), undefined));
+		const out = lines.filter((_, i) => !dropped.has(i));
+		out.splice(last + 1 - [...dropped].filter((i) => i <= last).length, 0, ...fresh);
+		return out.join("\n");
+	}
+	if (pending.size === 0) return text;
+	const fresh = [...pending]
+		.sort(byName)
+		.map(([file, set]) => entryLine("", file, [...set].sort(), undefined));
+	const body = text.replace(/\n*$/, "\n");
+	return `${body}\n[grandfathered]\n${fresh.join("\n")}\n`;
+}
+
+/** Drops a trailing comment block an earlier report appended. */
 function withoutGenerated(text: string): string {
 	const lines = text.split("\n");
 	const at = lines.findIndex(
 		(l, i) =>
-			/^# (?:unmapped|not applied)\s*$/.test(l) && lines.slice(i).every((x) => /^\s*(?:#.*)?$/.test(x)),
+			/^# (?:unmapped|not grandfathered|not applied)\s*$/.test(l) &&
+			lines.slice(i).every((x) => /^\s*(?:#.*)?$/.test(x)),
 	);
 	return at < 0 ? text : lines.slice(0, at).join("\n").replace(/\s*$/, "\n");
 }
@@ -235,7 +161,7 @@ function withoutGenerated(text: string): string {
 function block(key: string, g: Group): string[] {
 	const out = [`[resources.${q(key)}]`];
 	if (g.match.size > 0) out.push(`${key.startsWith("fs.") ? "paths" : "match"} = ${arr([...g.match])}`);
-	const files = sorted(g.writers);
+	const files = [...g.writers].sort(byName).map(([path, sites]) => ({ path, sites }));
 	if (files.length === 0) return [...out, "writers = []"];
 	const width = Math.max(...files.map((f) => q(f.path).length)) + 1;
 	out.push("writers = [");

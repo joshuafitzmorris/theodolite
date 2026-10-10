@@ -1,5 +1,5 @@
-# theodolite's own matrix. The only thing this package writes is files into the user's repository,
-# and only three modules may do that. Scanning is read-only by construction.
+# theodolite's own matrix. The only thing this package writes is files into the user's repository:
+# init writes the kit, status appends to STATUS.md. Scanning is read-only by construction.
 
 [scan]
 include = ["src/**"]
@@ -8,5 +8,5 @@ languages = ["ts"]
 unmapped = "error"
 
 [resources."fs.user-repo"]
-paths = ["writeFileSync(", "mkdirSync(", "appendFileSync(", "renameSync(", "chmodSync("]
-writers = ["src/init/**", "src/status/**", "src/shared/fs.ts"]
+paths = ["theodolite.toml", ".github/workflows/theodolite.yml", ".claude/", "AGENTS.md", "CLAUDE.md", ".gitignore", "STATUS.md"]
+writers = ["src/init/**", "src/status/**"]

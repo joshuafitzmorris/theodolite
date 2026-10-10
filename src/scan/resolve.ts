@@ -1,8 +1,9 @@
 // Turn found sites into resources, then judge each one against the matrix.
 
-import { basename, dirname } from "node:path";
+import { basename } from "node:path";
 import type { FileFacts, FoundSite } from "./detect.ts";
 import { type Config, forms, globRe, inGlobs, type Resource, snake } from "./matrix.ts";
+import { sdkFor } from "./sdk.ts";
 import { matchOffsets } from "./shared.ts";
 
 export type Rule =
@@ -13,7 +14,8 @@ export type Rule =
 	| "undeclared-constructor"
 	| "undeclared-connection"
 	| "grandfathered"
-	| "stale-grandfathered";
+	| "stale-grandfathered"
+	| "grandfathered-grew";
 
 export type Severity = "error" | "warning" | "note";
 
@@ -50,12 +52,13 @@ export interface ResolveResult {
 	connections: { file: string; line: number; via: string }[];
 }
 
-export const dirGlob = (file: string) => (dirname(file) === "." ? file : `${dirname(file)}/**`);
 /** The resource a new declaration would use for a site no resource claims. */
 export function propose(s: FoundSite): Resolved["proposed"] {
 	if (s.kind === "db")
 		return s.dynamic || !snake(s.target) ? null : { key: `db.${snake(s.target)}`, match: null };
 	if (s.kind === "http") {
+		const sdk = sdkFor(s.target);
+		if (sdk) return { key: `external.${sdk.name}`, match: sdk.ctor };
 		const host = /^["'`]?https?:\/\/([^/:?#"'`\s${}]+)/.exec(s.target)?.[1];
 		return host ? { key: `external.${host}`, match: host } : null;
 	}
@@ -97,11 +100,18 @@ const F = (
 	message,
 });
 
+/** The globs that may write a resource, for the finding that names the owner. */
+export function ownerOf(r: Resource): string {
+	const globs = r.writers.length > 0 ? r.writers : (r.constructors ?? []);
+	return globs.length > 0 ? globs.join(", ") : "nothing";
+}
+
 export function resolveAll(
 	cfg: Config,
 	scanned: { path: string; facts: FileFacts }[],
 	fileCount: number,
 	strict: boolean,
+	checkStale = true,
 ): ResolveResult {
 	const byKey = new Map(cfg.resources.map((r) => [r.key, r]));
 	const dbByName = new Map<string, Resource>();
@@ -161,29 +171,38 @@ export function resolveAll(
 		if (constructing ? inCons : isNew || inGlobs(file, r.writers) || inCons) return;
 		const gf = cfg.grandfathered.filter((g) => g.resources.includes(r.key) && globRe(g.glob)?.test(file));
 		const say = (verb: string, tail: string) => `${verb} ${r.key} (${s.via})  ${tail}`;
-		const quoted = (x: string) => JSON.stringify(x);
 		const add = (rule: Rule, sev: Severity, fix: Finding["fix"], msg: string) =>
 			findings.push(F(rule, sev, file, s, r.key, fix, msg));
-		const tag = `Add under [resources.${JSON.stringify(r.key)}]:`;
 		if (gf.length > 0) {
 			for (const g of gf) usedGf.add(`${g.glob}|${r.key}`);
 			add("grandfathered", "note", null, say("writes", "grandfathered, TODO(tighten)"));
 		} else if (constructing) {
-			const verb = isNew ? "constructs" : "writes";
+			const owner = (r.constructors ?? []).join(", ") || "nothing";
 			add(
 				"undeclared-constructor",
 				"error",
 				{ key: "constructors", add: file },
-				say(verb, `not a constructor. ${tag} constructors = [..., ${quoted(file)}]`),
+				say(
+					isNew ? "constructs" : "creates",
+					`${r.key} is created by ${owner}; call it from there, or say in the PR why this file must create it.`,
+				),
 			);
 		} else if (r.writers.length === 0 && !r.constructors?.length) {
-			add("write-never", "error", null, say("writes", "write-never."));
+			add(
+				"write-never",
+				"error",
+				null,
+				say("writes", `write-never: nothing may write ${r.key}. Say in the PR why that must change.`),
+			);
 		} else {
 			add(
 				"undeclared-write",
 				"error",
-				{ key: "writers", add: dirGlob(file) },
-				say("writes", `not declared. ${tag} writers = [..., ${quoted(dirGlob(file))}]`),
+				{ key: "writers", add: file },
+				say(
+					"writes",
+					`${r.key} is written by ${ownerOf(r)}; call it from there, or say in the PR why this file must write it.`,
+				),
 			);
 		}
 	};
@@ -217,10 +236,15 @@ export function resolveAll(
 			return;
 		}
 		const name = prop?.key ?? "<resource>";
-		const extra = prop?.match
-			? ` ${s.kind === "fs" ? "paths" : "match"} = [${JSON.stringify(prop.match)}]`
-			: "";
-		const msg = `writes ${name} (${s.via})  unmapped${tag || " (error)"}. Add [resources.${JSON.stringify(name)}]${extra} writers = [${JSON.stringify(dirGlob(file))}]`;
+		const field = s.kind === "fs" ? "paths" : "match";
+		if (prop?.match && byKey.has(name)) {
+			// The resource exists; only its match is missing. Stripe calls on a client bound elsewhere land here.
+			const msg = `writes ${name} (${s.via})  unmapped${tag || " (error)"}. Add ${JSON.stringify(prop.match)} to the ${field} of [resources.${JSON.stringify(name)}]`;
+			findings.push(F("unmapped-write", sev, file, s, null, { key: field, add: prop.match }, msg));
+			return;
+		}
+		const extra = prop?.match ? ` ${field} = [${JSON.stringify(prop.match)}]` : "";
+		const msg = `writes ${name} (${s.via})  unmapped${tag || " (error)"}. Add [resources.${JSON.stringify(name)}]${extra} writers = [${JSON.stringify(file)}]`;
 		findings.push(F("unmapped-write", sev, file, s, null, { key: "resources", add: name }, msg));
 	};
 
@@ -249,15 +273,15 @@ export function resolveAll(
 		for (const c of facts.connections) {
 			connections.push({ file, line: c.line, via: c.via });
 			if (!cfg.connections || inGlobs(file, cfg.connections.allow)) continue;
-			const fix = { key: "allow", add: dirGlob(file) };
-			const msg = `opens a connection (${c.via})  not allowed. Add under [connections]: allow = [..., ${JSON.stringify(dirGlob(file))}]`;
+			const fix = { key: "allow", add: file };
+			const msg = `opens a connection (${c.via})  not allowed. Add under [connections]: allow = [..., ${JSON.stringify(file)}]`;
 			findings.push(
 				F("undeclared-connection", "error", file, { ...c, family: "connection" }, null, fix, msg),
 			);
 		}
 	}
 
-	for (const g of cfg.grandfathered) {
+	for (const g of checkStale ? cfg.grandfathered : []) {
 		for (const key of g.resources.filter((k) => !usedGf.has(`${g.glob}|${k}`))) {
 			const msg = `stale-grandfathered: ${JSON.stringify(g.glob)} lists ${key} but no write site matches. Remove it.`;
 			findings.push(

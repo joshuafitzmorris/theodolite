@@ -33,6 +33,8 @@ export type Config = {
 	resources: Resource[];
 	connections: { allow: string[]; match: Matcher[] } | null;
 	grandfathered: { glob: string; resources: string[]; line: number }[];
+	/** Globs whose files open a door when changed; null means the built-in list. */
+	doors: string[] | null;
 };
 
 export type ConfigError = { line: number; col: number; message: string };
@@ -108,7 +110,8 @@ const KNOWN = {
 	scan: ["include", "exclude", "languages", "unmapped"],
 	resource: ["writers", "constructors", "match", "paths", "tables", "aliases"],
 	connections: ["allow", "match"],
-	top: ["scan", "resources", "connections", "grandfathered"],
+	doors: ["paths"],
+	top: ["scan", "resources", "connections", "grandfathered", "doors"],
 };
 
 const distance = (a: string, b: string): number => {
@@ -306,6 +309,12 @@ export function loadConfig(text: string, file: string): Loaded {
 			match: matchers(["connections", "match"], c.match),
 		};
 	}
+	let doors: string[] | null = null;
+	if (doc.doors !== undefined) {
+		const d = isObj(doc.doors) ? doc.doors : {};
+		known(["doors"], d, KNOWN.doors, " in [doors]");
+		doors = globs(["doors", "paths"], d.paths, "paths");
+	}
 	const grandfathered: Config["grandfathered"] = Object.entries(
 		isObj(doc.grandfathered) ? doc.grandfathered : {},
 	).map(([glob, list]) => {
@@ -331,6 +340,7 @@ export function loadConfig(text: string, file: string): Loaded {
 		resources,
 		connections,
 		grandfathered,
+		doors,
 	};
 	return { ok: true, config };
 }

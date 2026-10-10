@@ -141,14 +141,26 @@ export function httpHit(
 	};
 }
 
-const JOIN = /^(?:[\w$]+\.)?(?:join|resolve)\s*\(\s*(?=["'])/;
+const JOIN = /^(?:[\w$]+\.)?(?:join|resolve)\s*\(/;
 
-/** Hit for a filesystem write to the path in `dest`. A path.join with a literal head counts as a prefix. */
+/**
+ * Hit for a filesystem write to the path in `dest`. In `join(a, b, c)` the first literal argument is the
+ * prefix: `join("uploads", name)` and `join(root, "uploads", name)` both give `uploads/`, and
+ * `join(root, "theodolite.toml")` gives the file itself.
+ */
 export function pathHit(t: Tokens, dest: Span | undefined, via: string, offset: number): Hit {
 	const v = argValue(t, dest);
-	const join = !v.literal && dest ? JOIN.exec(t.source.slice(dest[0], dest[1])) : null;
-	const head = join && dest ? t.byQuote.get(dest[0] + join[0].length)?.value : undefined;
-	if (head !== undefined) return { offset, via, kind: "fs", target: `${head}/`, confidence: "medium" };
+	const join = !v.literal && dest ? JOIN.exec(t.code.slice(dest[0], dest[1])) : null;
+	if (join && dest) {
+		const args = callArgs(t.code, dest[0] + join[0].length - 1);
+		const at = args.findIndex(([a]) => t.byQuote.has(a));
+		const head = at < 0 ? undefined : t.byQuote.get(args[at]?.[0] ?? -1)?.value;
+		if (head !== undefined && at < args.length) {
+			const last = at === args.length - 1;
+			const target = last ? head : `${head.replace(/\/+$/, "")}/`;
+			return { offset, via, kind: "fs", target, confidence: "medium" };
+		}
+	}
 	return {
 		offset,
 		via,

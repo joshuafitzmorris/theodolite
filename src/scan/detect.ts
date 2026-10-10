@@ -68,7 +68,11 @@ export function scanFile(preset: Preset, source: string, path: string, setup: Sc
 			});
 		}
 	}
-	return { sites, connections: findConnections(preset, t, ctx, setup) };
+	// An SDK call on a line another detector reported is that detector's site: a Supabase table write, a
+	// bound http client, a `match` entry.
+	const claimedLines = new Set(sites.filter((s) => s.family !== "sdk").map((s) => s.line));
+	const kept = sites.filter((s) => s.family !== "sdk" || !claimedLines.has(s.line));
+	return { sites: kept, connections: findConnections(preset, t, ctx, setup) };
 }
 
 function findConnections(preset: Preset, t: Tokens, ctx: FileContext, setup: ScanSetup): ConnectionSite[] {

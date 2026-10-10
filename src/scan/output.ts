@@ -15,18 +15,24 @@ export function summarize(res: ResolveResult) {
 	};
 }
 
-export function humanOutput(res: ResolveResult): string {
+/** With `doors` (from `check --base`), the counts are of changed files and new sites, and the verdict line ends it. */
+export function humanOutput(res: ResolveResult, doors?: string[]): string {
 	const s = summarize(res);
 	const gf = res.findings.filter((f) => f.rule === "grandfathered").length;
-	const total = `${plural(s.files, "file")}, ${plural(s.sites, "write site")}, ${plural(s.errors, "error")}, ${plural(s.warnings, "warning")}`;
-	return [
+	const files = plural(s.files, doors ? "changed file" : "file");
+	const sites = plural(s.sites, doors ? "new write site" : "write site");
+	const total = `${files}, ${sites}, ${plural(s.errors, "error")}, ${plural(s.warnings, "warning")}`;
+	const lines = [
 		...res.findings.map((f) => `${f.file}:${f.line}  ${f.message}`),
 		`theodolite: ${total}, ${gf} grandfathered`,
-	].join("\n");
+	];
+	if (doors) lines.push(`doors: ${doors.length === 0 ? "none" : doors.join("; ")}`);
+	return lines.join("\n");
 }
 
 /** Findings carry their human text in `message`; the JSON shape leaves it out. */
-export const jsonOutput = (res: ResolveResult) =>
-	JSON.stringify({ version: 1, summary: summarize(res), findings: res.findings }, (k, v) =>
-		k === "message" ? undefined : v,
+export const jsonOutput = (res: ResolveResult, doors?: string[]) =>
+	JSON.stringify(
+		{ version: 1, summary: summarize(res), ...(doors ? { doors } : {}), findings: res.findings },
+		(k, v) => (k === "message" ? undefined : v),
 	);

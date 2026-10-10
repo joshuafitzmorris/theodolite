@@ -42,3 +42,19 @@ writers = []
 [resources."bucket.assets"]
 match = ["s3.putObject("]
 writers = []
+
+[resources."external.resend"]
+match = ["new Resend("]
+writers = []
+
+[resources."external.openai"]
+match = ["new OpenAI("]
+writers = []
+
+[resources."external.supabase"]
+match = ["createClient("]
+writers = []
+
+[resources."external.s3"]
+match = ["new S3Client("]
+writers = []

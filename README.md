@@ -10,15 +10,17 @@ Opinions on running coding agents, kept small, with a check behind each one that
 
 3. **Simple beats clever.** You are not Google; you don't have its volume or its headcount. One deployable, one repo, no abstraction before its third caller, no service until a boundary forces one. [stance; the matrix makes "a boundary forces one" visible]
 
-4. **The feedback loop is the speed limit.** One command, under a minute, that shows the thing working. If the loop is slow, fix that before the feature. [stance, named in AGENTS.md]
+4. **The cleanest code the situation calls for.** Not the cleanest code; the cleanest for this problem at this size. Nothing to come back and clean up, nothing the problem doesn't need. An agent that touches a file fixes what is small and obvious there and leaves the rest in one line of its report. Fast and sloppy is not fast; it is the next ticket's bill. [stance, named in AGENTS.md]
 
-5. **The human reviews doors, not diffs.** A PR that opens no one-way door (new writer, migration, dependency, auth, CI) merges on green plus a five-line summary. Review time goes to the ones that do. [doors label]
+5. **The feedback loop is the speed limit.** One command, under a minute, that shows the thing working. If the loop is slow, fix that first; it outranks the ticket. [stance, named in AGENTS.md]
 
-6. **Complexity never passes the human unread.** Every PR explains itself in plain English. Agents ask with a default and keep going; they never stop and wait. [the label waits for a description; needs-you lines]
+6. **The human reviews doors, not diffs.** A PR that opens no one-way door (new writer, migration, dependency, auth, CI) merges on green plus a five-line summary. Review time goes to the ones that do. [doors label]
 
-7. **The cheapest model that can be checked.** Haiku for mechanical work, Sonnet to implement, Opus to plan and review. [subagent files]
+7. **Complexity never passes the human unread.** Every PR explains itself in plain English. Agents ask with a default and keep going; they never stop and wait. [the label waits for a description; needs-you lines]
 
-8. **Nothing is enforced by hope.** A rule either has a check behind it or it is labelled a stance. [the kit's own discipline]
+8. **The cheapest model that can be checked.** Haiku for mechanical work, Sonnet to implement, Opus to plan and review. [subagent files]
+
+9. **Nothing is enforced by hope.** A rule either has a check behind it or it is labelled a stance. [the kit's own discipline]
 
 ## What init writes
 
